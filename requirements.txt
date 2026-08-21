@@ -1,0 +1,12 @@
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch
+sentence-transformers
+python-docx
+pypdf
+openpyxl
+python-pptx
+chromadb
+tqdm
+python-dotenv
+google-genai
+rank_bm25

@@ -1,0 +1,10 @@
+.venv-local/
+.claude/
+.env
+__pycache__/
+*.pyc
+chroma_db/
+local_ingest_progress.txt
+qa_log.jsonl
+documents.db
+Piri-veriler/
