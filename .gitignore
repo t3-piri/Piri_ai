@@ -7,4 +7,6 @@ chroma_db/
 local_ingest_progress.txt
 qa_log.jsonl
 documents.db
+users.db
+sss_entries.jsonl
 Piri-veriler/

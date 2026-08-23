@@ -351,6 +351,47 @@ def answer_question(question, current_competition=None):
     return _finalize(question, result, current_competition, current_competition)
 
 
+def answer_in_context(question, context, include_general=True):
+    """Kullanici arayuzde bagami ACIKCA sectiginde kullanilir: arama yalnizca
+    secilen baglamin kaynaklarinda yapilir, diger yarismalarin kaynaklarina
+    hic bakilmaz.
+
+    context = GENERAL_LABEL  -> sadece genel kurallar / etik / SSS
+    context = <yarisma adi>  -> once o yarismanin kaynaklari; bulunamazsa
+        (include_general ise) genel kurallar - cunku genel kurallar ve etik
+        kurallar zaten her yarisma icin gecerli olan 'uygun kaynak'tir.
+        include_general=False verilirse yalnizca yarismanin kendi kaynaklarina bakilir.
+
+    answer_question()'dan farki: mesaj metninde baska bir yarisma adi gecse
+    bile baglam disina cikilmaz."""
+    if not context or context == GENERAL_LABEL:
+        return _finalize(question, _try_general(question), GENERAL_LABEL, None)
+
+    result = _try_competition(question, context)
+    if result is None and include_general:
+        result = _try_general(question)
+    return _finalize(question, result, context, context)
+
+
+def answer_auto(question, selected_competition=None):
+    """Yarismaci arayuzu icin: yarisma secimi ZORUNLU DEGILDIR.
+
+    1) Soru metninde bir yarisma adi geciyorsa -> DOGRUDAN o yarismanin
+       kaynaklarinda ara (genel kaynaklar sadece yedek). Ekranda baska bir
+       yarisma secili olsa bile metindeki acik niyet oncelikli.
+    2) Metinde yarisma adi yoksa ama kullanici ekrandan bir yarisma sectiyse
+       -> o yarismanin kaynaklarinda ara (genel kaynaklar yedek).
+    3) Ikisi de yoksa -> once genel kurallar/etik/SSS; orada da net cevap
+       yoksa kullaniciya hangi yarisma oldugu sorulur (needs_competition).
+    """
+    mentioned = detect_competition_mention(question)
+    if mentioned:
+        return answer_in_context(question, mentioned)
+    if selected_competition:
+        return answer_in_context(question, selected_competition)
+    return answer_question(question, None)
+
+
 def ask_for_competition():
     print("Hangi yarışma hakkında yardım almak istiyorsunuz?")
     while True:

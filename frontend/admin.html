@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Piri · Yönetim Paneli</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧭</text></svg>">
+</head>
+<body class="dash nav-open">
+
+<!-- ======================================================== sol sabit menu -->
+<aside class="dash-sidebar" id="sidebar">
+  <a class="dash-brand" href="/admin">
+    <span class="dash-brand-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/>
+        <polygon points="15.8,8.2 10.6,10.6 8.2,15.8 13.4,13.4" fill="#fff" stroke="none"/>
+      </svg>
+    </span>
+    <span class="t">PİRİ</span>
+  </a>
+
+  <div class="dash-user">
+    <span class="dash-user-av" id="sideAvatar">—<i></i></span>
+    <div>
+      <strong id="sideName">—</strong>
+      <small id="sideRole">—</small>
+    </div>
+  </div>
+
+  <div class="dash-navlabel">Ana Menü</div>
+  <nav class="dash-nav">
+    <button type="button" class="dash-nav-item active" data-tab="overview">
+      <span class="ring"></span>Genel Bakış
+      <svg class="arw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </button>
+    <button type="button" class="dash-nav-item" data-tab="sources" data-perm="sources.view">
+      <span class="ring"></span>Kaynak Havuzu
+      <svg class="arw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </button>
+    <button type="button" class="dash-nav-item" data-tab="knowledge" data-perm="questions.view">
+      <span class="ring"></span>Bilgi Güncelleme
+      <svg class="arw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </button>
+    <button type="button" class="dash-nav-item" data-tab="users" data-perm="users.view">
+      <span class="ring"></span>Kullanıcılar &amp; Roller
+      <svg class="arw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </button>
+  </nav>
+
+  <div class="dash-navlabel spaced">Sistem</div>
+  <nav class="dash-nav">
+    <button type="button" class="dash-nav-item danger" id="logoutBtn">
+      <span class="ring"></span>Oturumu Kapat
+      <svg class="arw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </button>
+  </nav>
+</aside>
+
+<div class="dash-scrim" id="navScrim"></div>
+
+<!-- ==================================================== icerik sutunu -->
+<div class="dash-main">
+
+  <header class="dash-topbar">
+    <button type="button" class="dash-burger" id="burger" title="Menüyü aç/kapat">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+
+    <div class="dash-help">Destek: <strong>destek@teknofest.org</strong></div>
+    <span class="dash-lang"><span class="flag">🇹🇷</span> Türkçe</span>
+
+    <div class="dash-search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>
+      <input type="text" id="globalSearch" placeholder="Kaynak havuzunda ara…">
+    </div>
+
+    <button type="button" class="dash-iconbtn" id="bellBtn" title="Yanıtsız sorular">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+      </svg>
+      <span class="dash-badge" id="bellBadge" hidden>0</span>
+    </button>
+
+    <button type="button" class="dash-iconbtn" id="docsBtn" title="Aktif kaynaklar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>
+      </svg>
+      <span class="dash-badge ok" id="docsBadge" hidden>0</span>
+    </button>
+
+    <div class="dash-account">
+      <button type="button" id="accountBtn">
+        <span class="av" id="topAvatar">—</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="dash-menu" id="accountMenu" hidden>
+        <div class="dash-menu-head">
+          <strong id="menuName">—</strong>
+          <small id="menuRole">—</small>
+        </div>
+        <a href="/" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          Yarışmacı arayüzü
+        </a>
+        <button type="button" id="refreshBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/></svg>
+          Verileri yenile
+        </button>
+        <button type="button" id="menuLogout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          Oturumu kapat
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="dash-content">
+
+    <div class="dash-pagehead">
+      <h1 id="pageTitle">Genel Bakış</h1>
+      <nav class="dash-sublinks">
+        <button type="button" data-jump="sources">Kaynak havuzu</button>
+        <span class="sep">|</span>
+        <button type="button" data-jump="knowledge">Bilgi güncelleme</button>
+        <span class="sep">|</span>
+        <button type="button" data-jump="users">Kullanıcılar</button>
+      </nav>
+      <div class="dash-pageactions">
+        <button type="button" id="headRefresh">Yenile</button>
+      </div>
+    </div>
+
+    <!-- ------------------------------------------------------ Genel Bakış -->
+    <section id="tab-overview">
+      <div class="metric-strip" id="ovStats"></div>
+      <div class="dash-grid">
+        <div class="panel">
+          <h2>Yarışmaya Göre Kaynak Dağılımı</h2>
+          <p class="panel-sub">En çok doğrulanmış belgeye sahip ilk 8 yarışma/kategori.</p>
+          <div id="ovBars"><div class="loading-box">Yükleniyor…</div></div>
+        </div>
+        <div class="panel">
+          <h2>Bekleyen Sorular</h2>
+          <p class="panel-sub">Kaynaklarda yeterli kanıt bulunamayan sorular. Yanıtlandığında bilgi tabanına işlenir.</p>
+          <div id="ovQuestions"><div class="loading-box">Yükleniyor…</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ----------------------------------------------------- Kaynak Havuzu -->
+    <section id="tab-sources" hidden>
+      <div class="metric-strip" id="srcStats"></div>
+      <div class="panel">
+        <h2>Doğrulanmış Kaynak Havuzu</h2>
+        <p class="panel-sub">Belgeler yarışmaya göre gruplanmıştır; genel kaynaklar (SSS, Genel ve Etik Kurallar) listenin başındadır. Yalnızca <strong>aktif</strong> sürümler aramaya dahil edilir, pasif sürümler geçmiş kayıt olarak saklanır.</p>
+        <div class="form-row">
+          <input type="text" id="filter" placeholder="Dosya veya yarışma adına göre filtrele…">
+        </div>
+        <div id="docsArea"><div class="loading-box">Yükleniyor…</div></div>
+      </div>
+    </section>
+
+    <!-- -------------------------------------------------- Bilgi Güncelleme -->
+    <section id="tab-knowledge" hidden>
+      <div class="metric-strip" id="qStats"></div>
+
+      <div class="panel">
+        <h2>Bilgi Tabanını Güncelle</h2>
+        <p class="panel-sub">Modelin bilgisi iki yoldan güncellenir: yanıtsız kalan bir soruyu cevaplayarak (cevap SSS kaydı olarak anında vektör veritabanına işlenir) veya yeni bir şartname/kılavuz belgesi yükleyerek.</p>
+
+        <!-- 1) yanitsiz sorular -->
+        <div class="subpanel">
+          <div class="subhead">
+            <h3>Yanıtsız Sorular</h3>
+            <span class="tag">CEVAPLA → SSS'E İŞLE</span>
+          </div>
+          <p class="panel-sub">Yeterli kanıt bulunamadığı için destek ekibine yönlendirilen sorular. Yazdığınız cevap kaynak olarak kaydedilir ve aynı soru tekrar sorulduğunda model bu kayda dayanarak yanıt verir.</p>
+          <div id="qArea"><div class="loading-box">Yükleniyor…</div></div>
+        </div>
+
+        <!-- 2) belge yukleme -->
+        <div class="subpanel" id="uploadBlock">
+          <div class="subhead">
+            <h3>Belge Yükle / Güncelle</h3>
+            <span class="tag">ŞARTNAME · KILAVUZ</span>
+          </div>
+          <p class="panel-sub">Aynı adlı bir belge zaten varsa yeni sürüm olarak kaydedilir; eski sürüm otomatik olarak pasife alınır.</p>
+          <div class="form-grid">
+            <div class="form-row">
+              <label>Yarışma / Kategori</label>
+              <select id="compSelect"><option value="">Yükleniyor…</option></select>
+            </div>
+            <div class="form-row">
+              <label>Belge</label>
+              <input type="file" id="fileInput" accept=".pdf,.docx,.pptx,.xlsx">
+              <div class="hint">PDF, Word (.docx), PowerPoint (.pptx), Excel (.xlsx)</div>
+            </div>
+          </div>
+          <button class="btn-red" id="uploadBtn" style="margin-top:16px">YÜKLE VE İŞLE</button>
+          <div id="uploadResult" style="margin-top:20px"></div>
+        </div>
+
+        <!-- 3) panelden eklenen SSS kayitlari -->
+        <div class="subpanel">
+          <div class="subhead">
+            <h3>Panelden Eklenen SSS Kayıtları</h3>
+            <span class="tag">MODELE İŞLENDİ</span>
+          </div>
+          <div id="sssArea"><div class="loading-box">Yükleniyor…</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------ Kullanıcılar/Roller -->
+    <section id="tab-users" hidden>
+      <div class="panel">
+        <h2>Roller ve Yetkiler</h2>
+        <p class="panel-sub">Genel yetki tek bir <strong>Sahip</strong> hesabındadır. Diğer hesapları sahip açar ve rollerini o belirler; her rol yalnızca kendi yetkilerini görür.</p>
+        <div class="role-cards" id="roleCards"></div>
+      </div>
+
+      <div class="panel" style="margin-top:22px">
+        <h2>Kullanıcılar</h2>
+        <p class="panel-sub" id="usersSub">Sistemde tanımlı yönetim hesapları.</p>
+        <div id="usersArea"><div class="loading-box">Yükleniyor…</div></div>
+
+        <div class="subpanel" id="newUserBlock" hidden>
+          <div class="subhead">
+            <h3>Yeni Kullanıcı</h3>
+            <span class="tag">SAHİP YETKİSİ</span>
+          </div>
+          <div class="form-grid">
+            <div class="form-row">
+              <label>Kullanıcı adı</label>
+              <input type="text" id="nuUsername" placeholder="ör. ayse">
+            </div>
+            <div class="form-row">
+              <label>Görünen ad</label>
+              <input type="text" id="nuDisplay" placeholder="ör. Ayşe Yılmaz">
+            </div>
+            <div class="form-row">
+              <label>Şifre</label>
+              <input type="password" id="nuPassword" placeholder="en az 4 karakter">
+            </div>
+            <div class="form-row">
+              <label>Rol</label>
+              <select id="nuRole"></select>
+            </div>
+          </div>
+          <button class="btn-red" id="createUserBtn" style="margin-top:16px">KULLANICI OLUŞTUR</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <strong>Piri</strong> — Yönetim Paneli
+  </footer>
+</div>
+
+<!-- ========================================================= giris ekrani -->
+<div class="login-wrap" id="loginWrap">
+  <div class="login-card">
+    <div class="lock">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+    </div>
+    <h2>Yetkili Girişi</h2>
+    <p>Bu alan yalnızca yetkilendirilmiş hesaplar içindir. Yarışmacı arayüzü giriş gerektirmez.</p>
+    <div class="form-row">
+      <input type="text" id="loginUser" placeholder="Kullanıcı adı" autocomplete="username">
+    </div>
+    <div class="form-row">
+      <input type="password" id="pw" placeholder="Şifre" autocomplete="current-password">
+    </div>
+    <button class="btn-red" id="loginBtn">GİRİŞ YAP</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="/static/admin.js"></script>
+</body>
+</html>
