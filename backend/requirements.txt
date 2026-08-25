@@ -10,3 +10,6 @@ tqdm
 python-dotenv
 google-genai
 rank_bm25
+fastapi
+uvicorn
+python-multipart
