@@ -16,7 +16,7 @@ BASE = f"http://127.0.0.1:{os.environ.get('PIRI_PORT', '8100')}"
 OWNER_USER = os.environ.get("OWNER_USERNAME", "sahip")
 OWNER_PW = os.environ.get("ADMIN_PASSWORD", "admin123")
 
-TEST_USERS = ["t_izleyici", "t_editor"]
+TEST_USERS = ["t_izleyici", "t_icerik", "t_destek"]
 TEST_QUESTION = "PIRI-TEST: Panelden eklenen bu kaydin sorusu nedir?"
 TEST_ANSWER = "PIRI-TEST: Bu, panel uzerinden eklenmis dogrulanmis bir SSS kaydidir."
 
@@ -115,9 +115,14 @@ status, data = call("POST", "/api/admin/users",
 check("Ikinci sahip olusturulamaz", status == 400, f"{status} {data.get('detail','')}")
 
 status, _ = call("POST", "/api/admin/users",
-                 {"username": "t_editor", "password": "test1234", "role": "editor",
-                  "display_name": "Test Editor"}, token=owner_token)
-check("Editor hesabi olusturuldu", status == 200, str(status))
+                 {"username": "t_icerik", "password": "test1234", "role": "icerik_yoneticisi",
+                  "display_name": "Test Icerik Yoneticisi"}, token=owner_token)
+check("Icerik Yoneticisi hesabi olusturuldu", status == 200, str(status))
+
+status, _ = call("POST", "/api/admin/users",
+                 {"username": "t_destek", "password": "test1234", "role": "destek_ekibi",
+                  "display_name": "Test Destek Ekibi"}, token=owner_token)
+check("Destek Ekibi hesabi olusturuldu", status == 200, str(status))
 
 viewer_token, viewer = login("t_izleyici", "test1234")
 check("Gozlemci girisi", bool(viewer_token))
@@ -135,15 +140,33 @@ status, _ = call("POST", "/api/admin/questions/answer",
                  {"question": "x", "answer": "y"}, token=viewer_token)
 check("Gozlemci soru YANITLAYAMAZ (403)", status == 403, str(status))
 
-editor_token, editor = login("t_editor", "test1234")
-check("Editor girisi", bool(editor_token))
-status, _ = call("POST", "/api/admin/documents/delete", {"document_id": "x"}, token=editor_token)
-check("Editor belge SILEMEZ (403)", status == 403, str(status))
+icerik_token, icerik = login("t_icerik", "test1234")
+check("Icerik Yoneticisi girisi", bool(icerik_token))
+check("Icerik Yoneticisi 3 yetkiye sahip", icerik and len(icerik["permissions"]) == 3,
+      str(icerik and icerik["permissions"]))
+status, _ = call("POST", "/api/admin/documents/status",
+                 {"document_id": "x", "version": 1, "status": "inactive"}, token=icerik_token)
+check("Icerik Yoneticisi durum DEGISTIREBILIR (yetkisi var)", status == 200, str(status))
+status, _ = call("POST", "/api/admin/documents/delete", {"document_id": "x"}, token=icerik_token)
+check("Icerik Yoneticisi belge SILEMEZ (403)", status == 403, str(status))
+status, _ = call("POST", "/api/admin/questions/answer",
+                 {"question": "x", "answer": "y"}, token=icerik_token)
+check("Icerik Yoneticisi soru YANITLAYAMAZ (403)", status == 403, str(status))
 status, _ = call("POST", "/api/admin/users", {"username": "z", "password": "1234", "role": "izleyici"},
-                 token=editor_token)
-check("Editor kullanici EKLEYEMEZ (403)", status == 403, str(status))
-status, _ = call("POST", "/api/admin/users/transfer", {"username": "t_izleyici"}, token=editor_token)
-check("Editor sahiplik DEVREDEMEZ (403)", status == 403, str(status))
+                 token=icerik_token)
+check("Icerik Yoneticisi kullanici EKLEYEMEZ (403)", status == 403, str(status))
+status, _ = call("POST", "/api/admin/users/transfer", {"username": "t_izleyici"}, token=icerik_token)
+check("Icerik Yoneticisi sahiplik DEVREDEMEZ (403)", status == 403, str(status))
+
+destek_token, destek = login("t_destek", "test1234")
+check("Destek Ekibi girisi", bool(destek_token))
+check("Destek Ekibi 2 yetkiye sahip", destek and len(destek["permissions"]) == 2,
+      str(destek and destek["permissions"]))
+status, _ = call("POST", "/api/admin/documents/status",
+                 {"document_id": "x", "version": 1, "status": "inactive"}, token=destek_token)
+check("Destek Ekibi kaynak durumu DEGISTIREMEZ (403)", status == 403, str(status))
+status, _ = call("GET", "/api/admin/documents", token=destek_token)
+check("Destek Ekibi kaynaklari GOREMEZ (403)", status == 403, str(status))
 
 status, _ = call("POST", "/api/admin/users/role", {"username": "t_izleyici", "role": "yonetici"},
                  token=owner_token)
@@ -164,8 +187,8 @@ check("Yanitsiz listesinde gorunuyor",
 
 status, ans = call("POST", "/api/admin/questions/answer",
                    {"question": TEST_QUESTION, "answer": TEST_ANSWER, "competition": None},
-                   token=editor_token)
-check("Editor soruyu yanitlayip SSS'e isleyebilir", status == 200, str(status))
+                   token=destek_token)
+check("Destek Ekibi soruyu yanitlayip SSS'e isleyebilir", status == 200, str(status))
 check("Cevap vektor veritabanina islendi", ans.get("indexed_chunks", 0) == 1,
       str(ans.get("indexed_chunks")))
 

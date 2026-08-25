@@ -25,14 +25,17 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import insights
 import local_rag_answer
 import sss_store
-from competitions import ROOT, list_real_competitions
+from competitions import ROOT, InvalidCompetitionName, list_real_competitions, sanitize_competition_name
 from document_registry import (
     deactivate_all_versions,
     list_documents,
     register_new_version,
     set_status,
+    update_metadata,
+    VALID_DOC_TYPES,
 )
 from local_embed import get_model
 from local_ingest import (
@@ -44,13 +47,56 @@ from local_ingest import (
     registry_category,
 )
 from local_rag_answer import GENERAL_LABEL, answer_auto
-from qa_log import read_log, unanswered_questions
+from qa_log import (
+    flagged_reports,
+    needs_competition_questions,
+    read_log,
+    technical_errors,
+    unanswered_questions,
+)
 
 load_dotenv()
 
 # On/arka yuz kodlari ayri klasorlerde yasar: web_app.py backend/ icinde,
-# HTML/CSS/JS dosyalari kardes klasor olan frontend/ icinde.
-STATIC_DIR = Path(__file__).parent.parent / "frontend"
+# React/Vite kaynagi kardes klasor olan frontend/ icinde. Sunulan HTML/JS/CSS
+# `npm run build` cikitisi olan frontend/dist/'tir (kaynak degil).
+FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
+DIST_DIR = FRONTEND_DIR / "dist"
+
+# Kullanicilarin yukledigi profil fotograflari - kod degil, veri; Piri-veriler/
+# chroma_db gibi proje kokunde, git'e girmez.
+AVATARS_DIR = Path(__file__).parent.parent / "avatars"
+AVATARS_DIR.mkdir(exist_ok=True)
+
+AVATAR_MAX_BYTES = 3 * 1024 * 1024  # 3 MB
+# Uzanti + "sihirli bayt" (magic bytes) ikisi de dogrulanir: sadece uzantiya
+# guvenmek, zararli bir dosyayi ".png" olarak yeniden adlandirip yuklemeye
+# izin verir.
+AVATAR_SIGNATURES = {
+    ".png": (b"\x89PNG\r\n\x1a\n",),
+    ".jpg": (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".webp": (b"RIFF",),  # "WEBP" ic ice 8-11. baytlarda, asagida ayrica kontrol edilir
+    ".gif": (b"GIF87a", b"GIF89a"),
+}
+
+
+def _validate_avatar(filename, content):
+    ext = Path(filename or "").suffix.lower()
+    if ext not in AVATAR_SIGNATURES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Desteklenmeyen resim türü. İzin verilenler: {', '.join(sorted(AVATAR_SIGNATURES))}",
+        )
+    if not content:
+        raise HTTPException(status_code=400, detail="Dosya boş.")
+    if len(content) > AVATAR_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Dosya 3 MB'tan büyük olamaz.")
+    if not any(content.startswith(sig) for sig in AVATAR_SIGNATURES[ext]):
+        raise HTTPException(status_code=400, detail="Dosya içeriği beklenen resim biçimiyle uyuşmuyor.")
+    if ext == ".webp" and b"WEBP" not in content[:16]:
+        raise HTTPException(status_code=400, detail="Dosya içeriği beklenen resim biçimiyle uyuşmuyor.")
+    return ext
 
 # token -> kullanici adi. Rol her istekte veritabanindan tazelenir; boylece
 # rol degisikligi / hesap silinmesi aninda etkili olur.
@@ -159,6 +205,7 @@ def require_owner(authorization: str = Header(None)):
 
 
 def _user_payload(user):
+    avatar_path = user.get("avatar_path")
     return {
         "username": user["username"],
         "display_name": user["display_name"],
@@ -166,6 +213,7 @@ def _user_payload(user):
         "role_label": user["role_label"],
         "is_owner": user["role"] == user_store.OWNER_ROLE,
         "permissions": user_store.permissions_for(user["role"]),
+        "avatar_url": f"/avatars/{avatar_path}" if avatar_path else None,
     }
 
 
@@ -174,16 +222,6 @@ def _user_payload(user):
 # --------------------------------------------------------------------------
 
 _NO_CACHE = {"Cache-Control": "no-store, must-revalidate"}
-
-
-@app.get("/")
-def page_chat():
-    return FileResponse(STATIC_DIR / "index.html", headers=_NO_CACHE)
-
-
-@app.get("/admin")
-def page_admin():
-    return FileResponse(STATIC_DIR / "admin.html", headers=_NO_CACHE)
 
 
 # --------------------------------------------------------------------------
@@ -320,11 +358,18 @@ def api_admin_set_status(req: StatusRequest, _=Depends(require_permission("sourc
 def api_admin_upload(
     competition: str = Form(...),
     file: UploadFile = File(...),
+    doc_type: str = Form(default=""),
+    kaynak_adi: str = Form(default=""),
+    gecerlilik_bitis: str = Form(default=""),
     _=Depends(require_permission("sources.upload")),
 ):
-    competition = competition.strip()
-    if not competition:
-        raise HTTPException(status_code=400, detail="Yarışma/kategori seçilmedi.")
+    # doc_type dogrulamasi (bos = kategorisiz, kabul edilir)
+    if doc_type and doc_type not in VALID_DOC_TYPES:
+        raise HTTPException(status_code=400, detail=f"Geçersiz belge türü. İzin verilenler: {', '.join(sorted(VALID_DOC_TYPES))}")
+    try:
+        competition = sanitize_competition_name(competition)
+    except InvalidCompetitionName as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     filename = Path(file.filename or "").name
     if Path(filename).suffix.lower() not in SUPPORTED:
@@ -358,7 +403,11 @@ def api_admin_upload(
         shutil.copyfileobj(file.file, out)
 
     document_id, version = register_new_version(
-        competition, filename, rel_path, category=registry_category(competition)
+        competition, filename, rel_path,
+        category=registry_category(competition),
+        doc_type=doc_type or None,
+        kaynak_adi=kaynak_adi or None,
+        gecerlilik_bitis=gecerlilik_bitis or None,
     )
     records = records_for_file(
         dest_path,
@@ -384,7 +433,42 @@ def api_admin_upload(
         "deactivated_chunks": deactivated,
         "file": filename,
         "competition": competition,
+        "doc_type": doc_type or None,
+        "kaynak_adi": kaynak_adi or None,
+        "gecerlilik_bitis": gecerlilik_bitis or None,
     }
+
+
+class MetadataRequest(BaseModel):
+    document_id: str
+    version: int
+    doc_type: str | None = None
+    kaynak_adi: str | None = None
+    gecerlilik_bitis: str | None = None
+
+
+@app.post("/api/admin/documents/metadata")
+def api_admin_update_metadata(
+    req: MetadataRequest, _=Depends(require_permission("sources.status"))
+):
+    """Mevcut bir belge kaydinin doc_type / kaynak_adi / gecerlilik_bitis
+    alanlarini gunceller. 'sources.status' yetkisi yeterlidir; belge
+    icerigini degistirmez, sadece metadata etiketleri guncellenir."""
+    if req.doc_type is not None and req.doc_type != "" and req.doc_type not in VALID_DOC_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Geçersiz belge türü. İzin verilenler: {', '.join(sorted(VALID_DOC_TYPES))}",
+        )
+    rows = update_metadata(
+        req.document_id,
+        req.version,
+        doc_type=req.doc_type,
+        kaynak_adi=req.kaynak_adi,
+        gecerlilik_bitis=req.gecerlilik_bitis,
+    )
+    if rows == 0:
+        raise HTTPException(status_code=404, detail="Belge kaydı bulunamadı.")
+    return {"ok": True}
 
 
 class DeleteRequest(BaseModel):
@@ -420,9 +504,33 @@ def api_admin_unanswered(_=Depends(require_permission("questions.view"))):
     resolved = sss_store.resolved_questions()
     pending = [e for e in unanswered_questions() if e["question"] not in resolved]
     entries = sss_store.list_entries()
+
+    cut7, cut14 = insights.recent_cutoff(7), insights.recent_cutoff(14)
+    referral = {
+        "all_time": insights.referral_rate(log),
+        "last_7d": insights.referral_rate(log, since=cut7),
+        "prev_7d": insights.referral_rate(log, since=cut14, until=cut7),
+    }
+
     return {
         "unanswered": list(reversed(pending))[:200],
         "sss_entries": list(reversed(entries))[:100],
+        # Sadece HENUZ cevaplanmamis, insana yonlenen sorular arasinda -
+        # AI'in basariyla cevapladigi sorular bu kumelemeye dahil edilmez.
+        "frequent": insights.frequent_unanswered(pending),
+        # Kullanici tarafinda teknik nedenle basarisiz olan cagrilar - bilgi
+        # bosluğu degil, sistemsel aksakliktir; ayri sinyal olarak dondurulur
+        # ki admin panelindeki bildirim zili bunlari da yakalayabilsin.
+        "technical_errors": list(reversed(technical_errors()))[:50],
+        # Hangi yarismayla ilgili oldugu belirlenemedigi icin yanitsiz kalan
+        # sorular - ayni sekilde ayri sinyal (bkz. qa_log.needs_competition_questions).
+        "needs_competition": list(reversed(needs_competition_questions()))[:50],
+        # Kullanicinin SU AN yasadigi somut bir sorunu bildirdigi kayitlar -
+        # status'tan BAGIMSIZ (bkz. qa_log.flagged_reports): RAG bir cevap
+        # uretmis olsa bile ('answered' dahil) bu ayri sinyal dusebilir.
+        "flagged": list(reversed(flagged_reports()))[:50],
+        "quality": insights.quality_breakdown(log),
+        "referral": referral,
         "stats": {
             "total_questions": len(log),
             "answered": sum(1 for e in log if e["status"] == "answered"),
@@ -432,10 +540,32 @@ def api_admin_unanswered(_=Depends(require_permission("questions.view"))):
     }
 
 
+@app.get("/api/admin/activity")
+def api_admin_activity(_=Depends(require_permission("questions.view"))):
+    """Yil x ay etkinlik izgarasi + son hareketler akisi: sorumlunun gecmiste
+    hangi donemde ne kadar yogunluk oldugunu gormesi icin."""
+    log = read_log()
+    recent = [
+        {
+            "timestamp": e["timestamp"],
+            "competition": e.get("competition"),
+            "question": e["question"],
+            "status": e["status"],
+            "flagged": e.get("flagged", False),
+        }
+        for e in list(reversed(log))[:60]
+    ]
+    return {"activity": insights.activity_by_month(log), "recent": recent}
+
+
 class AnswerRequest(BaseModel):
     question: str
     answer: str
     competition: str | None = None
+    # Sik-tekrarlanan-soru kumesindeki farkli ifadelerle sorulmus varyantlar -
+    # bkz. insights.frequent_unanswered. Bu soru cevaplaninca hepsi birlikte
+    # "yanitsiz" listesinden duser (tek tek tekrar cevaplanmalari gerekmez).
+    also_resolves: list[str] = []
 
 
 @app.post("/api/admin/questions/answer")
@@ -449,7 +579,8 @@ def api_admin_answer_question(
         raise HTTPException(status_code=400, detail="Geçersiz yarışma seçimi.")
     try:
         entry, added = sss_store.add_entry(
-            req.question, req.answer, competition=competition, author=user["username"]
+            req.question, req.answer, competition=competition,
+            author=user["username"], also_resolves=req.also_resolves,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -556,10 +687,69 @@ def api_admin_transfer_owner(req: UsernameRequest, user=Depends(require_owner)):
 
 
 # --------------------------------------------------------------------------
+# Profilim - HERKES kendi hesabini duzenler (rol farketmez, yalnizca oturum
+# gerekir; users.manage baskasinin hesabini duzenlemek icindir).
+# --------------------------------------------------------------------------
+
+class ProfileRequest(BaseModel):
+    display_name: str
+
+
+@app.post("/api/admin/profile")
+def api_admin_update_profile(req: ProfileRequest, user=Depends(require_session)):
+    try:
+        updated = user_store.set_display_name(user["username"], req.display_name)
+    except user_store.UserError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "user": _user_payload(updated)}
+
+
+@app.post("/api/admin/profile/photo")
+def api_admin_upload_photo(file: UploadFile = File(...), user=Depends(require_session)):
+    content = file.file.read()
+    ext = _validate_avatar(file.filename, content)
+
+    username = user["username"]
+    # Onceki fotograf farkli bir uzantiyla yuklenmis olabilir - hepsini temizle.
+    for old in AVATARS_DIR.glob(f"{username}.*"):
+        old.unlink(missing_ok=True)
+
+    filename = f"{username}{ext}"
+    (AVATARS_DIR / filename).write_bytes(content)
+    updated = user_store.set_avatar_path(username, filename)
+    return {"ok": True, "user": _user_payload(updated)}
+
+
+@app.post("/api/admin/profile/photo/delete")
+def api_admin_delete_photo(user=Depends(require_session)):
+    username = user["username"]
+    for old in AVATARS_DIR.glob(f"{username}.*"):
+        old.unlink(missing_ok=True)
+    updated = user_store.set_avatar_path(username, None)
+    return {"ok": True, "user": _user_payload(updated)}
+
+
+class SelfPasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@app.post("/api/admin/profile/password")
+def api_admin_change_own_password(req: SelfPasswordRequest, user=Depends(require_session)):
+    try:
+        user_store.change_own_password(user["username"], req.current_password, req.new_password)
+    except user_store.UserError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------
 
 class NoCacheStaticFiles(StaticFiles):
-    """Tarayici eski CSS/JS'i onbellekten gostermesin: her istekte sunucuya
-    dogrulatir. Aksi halde arayuz guncellemeleri Ctrl+F5 yapilmadan gorunmez."""
+    """Tarayici eskiyi onbellekten gostermesin: her istekte sunucuya dogrulatir.
+    Profil fotograflari ayni dosya adiyla (kullaniciadi.uzanti) yeniden
+    yuklenebildigi icin, bu olmadan tarayici degisiklikten sonra bile eski
+    fotografi onbellekten gosterebilir."""
 
     def is_not_modified(self, response_headers, request_headers):
         return False
@@ -570,7 +760,21 @@ class NoCacheStaticFiles(StaticFiles):
         return response
 
 
-app.mount("/static", NoCacheStaticFiles(directory=STATIC_DIR), name="static")
+# Vite'in urettigi /assets/*.js|css dosya adlari icerik degisince degisir
+# (hash'li), bu yuzden normal tarayici onbelleklemesi guvenlidir. Sadece
+# HTML giris noktasi (asagida) ve degisebilen avatarlar icin onbellek
+# kapatilir.
+app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets"), name="assets")
+app.mount("/avatars", NoCacheStaticFiles(directory=AVATARS_DIR), name="avatars")
+
+
+@app.get("/{full_path:path}")
+def spa(full_path: str):
+    """Tek sayfa uygulamasi: /, /login, /admin, /admin/kaynak-havuzu vb. hepsi
+    ayni derlenmis index.html'i doner - istemci tarafi yonlendirme (react-router)
+    yolun geri kalanini isler. Bu route en sonda tanimli oldugu icin yukaridaki
+    /api/*, /assets/*, /avatars/* eslesmeleri her zaman once denenir."""
+    return FileResponse(DIST_DIR / "index.html", headers=_NO_CACHE)
 
 
 def _free_port(preferred=8000, tries=20):

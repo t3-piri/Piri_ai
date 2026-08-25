@@ -8,6 +8,27 @@ ROOT = Path("Piri-veriler")
 GENERAL_FOLDERS = {"Genel ve Etik kuralar", "SSS"}
 
 
+class InvalidCompetitionName(ValueError):
+    """Yarisma/kategori adi olarak kullanilamayacak (yol gezinme icerebilen) bir deger."""
+
+
+def sanitize_competition_name(name):
+    """Admin tarafindan girilen yarisma/kategori adini, ROOT altinda TEK bir
+    klasor adi olarak guvenli hale getirir. Bu deger dogrudan `ROOT / name`
+    seklinde dosya sistemine yaziliyor (bkz. web_app.api_admin_upload,
+    admin_panel.upload_or_update_source); '/','\\' veya '..' icermesi
+    ROOT disina yol gezinmeye (path traversal) izin verir - bu yuzden burada
+    tek bir yerde dogrulaniyor."""
+    cleaned = (name or "").strip()
+    if not cleaned:
+        raise InvalidCompetitionName("Yarışma/kategori adı boş olamaz.")
+    if "/" in cleaned or "\\" in cleaned or "\x00" in cleaned:
+        raise InvalidCompetitionName("Yarışma/kategori adı klasör ayırıcı karakter içeremez.")
+    if cleaned in (".", ".."):
+        raise InvalidCompetitionName("Geçersiz yarışma/kategori adı.")
+    return cleaned
+
+
 def list_competitions():
     if not ROOT.exists():
         return []

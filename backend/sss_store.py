@@ -35,8 +35,14 @@ def list_entries():
 
 
 def resolved_questions():
-    """Panelden cevaplanmis sorularin metinleri - 'yanitsiz' listesinden dusmeleri icin."""
-    return {e["question"] for e in list_entries() if e.get("question")}
+    """Panelden cevaplanmis (ya da bir SSS kaydinin varyanti olarak isaretlenmis)
+    sorularin metinleri - 'yanitsiz' listesinden dusmeleri icin."""
+    resolved = set()
+    for e in list_entries():
+        if e.get("question"):
+            resolved.add(e["question"])
+        resolved.update(e.get("also_resolves") or [])
+    return resolved
 
 
 def _scope(competition):
@@ -49,8 +55,15 @@ def _scope(competition):
     return competition, "yarisma", "competition_specific"
 
 
-def add_entry(question, answer, competition=None, author=None):
+def add_entry(question, answer, competition=None, author=None, also_resolves=None):
     """Soru-cevabi kalici kayda yazar ve Chroma'ya isler.
+
+    also_resolves: sik-tekrarlanan-soru kumelemesinde ayni kumede cikan
+    FARKLI ifadelerle sorulmus varyantlar (bkz. insights.frequent_unanswered).
+    Bunlar icin AYRI bir Chroma parcasi OLUSTURULMAZ (ayni cevabi tekrar
+    tekrar indekslemek gereksiz) - sadece 'yanitsiz sorular' listesinden
+    dusmeleri icin isaretlenirler.
+
     Donus: (entry, eklenen_chunk_sayisi)"""
     question = (question or "").strip()
     answer = (answer or "").strip()
@@ -58,6 +71,7 @@ def add_entry(question, answer, competition=None, author=None):
         raise ValueError("Soru boş olamaz.")
     if not answer:
         raise ValueError("Cevap boş olamaz.")
+    also_resolves = [v.strip() for v in (also_resolves or []) if v and v.strip() and v.strip() != question]
 
     scope_competition, category, registry_cat = _scope(competition)
     index = len(list_entries()) + 1
@@ -96,6 +110,7 @@ def add_entry(question, answer, competition=None, author=None):
         "locator": locator,
         "chunk_id": record["id"],
         "author": author,
+        "also_resolves": also_resolves,
     }
     with ENTRIES_FILE.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")

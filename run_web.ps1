@@ -5,6 +5,15 @@ Set-Location $PSScriptRoot
 
 Write-Host ""
 Write-Host "  PIRI - Yarismaci Destek Asistani" -ForegroundColor Cyan
+Write-Host "  On yuz derleniyor..." -ForegroundColor DarkGray
+
+Push-Location frontend
+if (-not (Test-Path "node_modules")) {
+    npm install
+}
+npm run build
+Pop-Location
+
 Write-Host "  Embedding modeli yukleniyor, lutfen bekleyin..." -ForegroundColor DarkGray
 Write-Host ""
 

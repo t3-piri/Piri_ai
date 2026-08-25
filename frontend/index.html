@@ -1,112 +1,14 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="tr">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Piri · Yarışmacı Destek Asistanı</title>
-<link rel="stylesheet" href="/static/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧭</text></svg>">
-</head>
-<body>
-
-<header class="topbar">
-  <div class="topbar-inner">
-    <a class="brand" href="/">
-      <span class="brand-mark">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="9"/>
-          <polygon points="15.8,8.2 10.6,10.6 8.2,15.8 13.4,13.4" fill="#fff" stroke="none"/>
-        </svg>
-      </span>
-      <span class="brand-text">
-        <strong>PİRİ</strong>
-        <small>YARIŞMACI DESTEK ASİSTANI</small>
-      </span>
-    </a>
-    <span class="topbar-note">Giriş gerekmez · Yanıtlar doğrulanmış şartname kaynaklarına dayanır</span>
-  </div>
-</header>
-
-<section class="hero">
-  <div class="hero-inner">
-    <h1>Şartnameye Dayalı Yanıtlar</h1>
-    <p>Sorunuzu doğrudan yazın. Yarışma adını yazarsanız o yarışmanın şartnamesinde, yazmazsanız genel kurallarda ararım.</p>
-    <div class="hero-badges">
-      <span class="hero-badge">✓ Kaynak gösterimi</span>
-      <span class="hero-badge">✓ Güven seviyesi</span>
-      <span class="hero-badge">✓ Uydurma yanıt yok</span>
-    </div>
-  </div>
-</section>
-
-<main class="page page-narrow">
-  <div class="chat">
-
-    <div class="chat-log" id="chatLog">
-      <div class="empty-state" id="emptyState">
-        <div class="empty-mark">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="9"/>
-            <polygon points="15.8,8.2 10.6,10.6 8.2,15.8 13.4,13.4" fill="#fff" stroke="none"/>
-          </svg>
-        </div>
-        <h2>Merhaba, size nasıl yardımcı olabilirim?</h2>
-        <p id="emptyHint">Sorunuzu günlük dilde yazın. Sorunuzda bir yarışma adı geçerse doğrudan o yarışmanın kaynaklarında ararım; geçmezse tüm yarışmalar için geçerli genel kurallara bakarım.</p>
-        <div class="suggestions" id="suggestions"></div>
-      </div>
-    </div>
-
-    <!-- Istege bagli yarisma secimi -->
-    <div class="scope-wrap">
-      <div class="scope-pop" id="scopePop" hidden>
-        <div class="scope-pop-head">
-          <strong>Yarışma seçin</strong>
-          <button type="button" class="scope-pop-close" id="scopeClose" title="Kapat">×</button>
-        </div>
-        <input type="text" class="scope-search" id="scopeSearch" placeholder="Yarışma ara… (örn. roket, İHA, hyperloop)">
-        <div class="scope-list" id="scopeList"></div>
-      </div>
-
-      <div class="scope-bar">
-        <div class="scope-state" id="scopeEmpty">
-          <svg class="scope-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 3h18v5a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5z"/><path d="M8 21h8M12 13v8"/>
-          </svg>
-          <span class="scope-text">Yarışmalar hakkında bilgi almak istiyorsanız, sormak istediğiniz yarışmayı seçin.</span>
-          <button type="button" class="scope-btn" id="scopePick">Yarışma seç</button>
-        </div>
-
-        <div class="scope-state" id="scopeActive" hidden>
-          <svg class="scope-ic on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 6 9 17l-5-5"/>
-          </svg>
-          <span class="scope-chip">
-            <span id="scopeName"></span>
-            <button type="button" id="scopeClear" title="Seçimi kaldır">×</button>
-          </span>
-          <span class="scope-text muted">kaynaklarında aranacak</span>
-          <button type="button" class="scope-btn" id="scopeChange">Değiştir</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="composer">
-      <textarea id="input" rows="1" placeholder="Sorunuzu yazın…"></textarea>
-      <button class="send-btn" id="send" title="Gönder">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-        </svg>
-      </button>
-    </div>
-    <div class="composer-hint">Enter ile gönder · Shift+Enter ile alt satır</div>
-  </div>
-</main>
-
-<footer class="footer">
-  <strong>Piri</strong> — TEKNOFEST yarışmacı destek asistanı · Yanıtlar doğrulanmış şartname kaynaklarına dayanır
-</footer>
-
-<div class="toast" id="toast"></div>
-<script src="/static/app.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Piri - Yarışmacı Destek Asistanı</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>

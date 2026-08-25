@@ -39,7 +39,8 @@ ve kayıt altına alır.
 |---|---|
 | **Sahip** (tek kişi) | Tümü — kullanıcıları açar, rolleri belirler, sahipliği devredebilir |
 | **Yönetici** | Kaynak yükleme/pasife alma/silme, soru yanıtlama, kullanıcıları görüntüleme |
-| **İçerik Editörü** | Belge yükleme, yanıtsız soruları cevaplama (silme/pasife alma yok) |
+| **İçerik Yöneticisi** | Yeni şartname yükler, eski kaynağı pasife alır, bilgi havuzunu günceller (silme yok, soru yanıtlamaz) |
+| **Destek Ekibi** | İnsana yönlenen soruları görür, yanıtlar, tekrarlayan konuları SSS havuzuna ekler |
 | **Gözlemci** | Yalnızca görüntüleme |
 
 Yetki anahtarları: `sources.view/upload/status/delete`, `questions.view/answer`,

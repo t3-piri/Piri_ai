@@ -51,17 +51,23 @@ ROLES = {
         },
         "rank": 1,
     },
-    "editor": {
-        "label": "İçerik Editörü",
-        "description": "Belge yükler ve yanıtsız soruları cevaplar; silme/pasife alma yetkisi yoktur.",
-        "permissions": {"sources.view", "sources.upload", "questions.view", "questions.answer"},
+    "icerik_yoneticisi": {
+        "label": "İçerik Yöneticisi",
+        "description": "Yeni şartname/kılavuz yükler, eski kaynağı pasife alır ve bilgi havuzunu günceller.",
+        "permissions": {"sources.view", "sources.upload", "sources.status"},
         "rank": 2,
+    },
+    "destek_ekibi": {
+        "label": "Destek Ekibi",
+        "description": "İnsana yönlenen soruları görür, yanıtlar ve tekrarlayan yeni konuları SSS havuzuna ekler.",
+        "permissions": {"questions.view", "questions.answer"},
+        "rank": 3,
     },
     "izleyici": {
         "label": "Gözlemci",
         "description": "Yalnızca görüntüler; hiçbir değişiklik yapamaz.",
         "permissions": {"sources.view", "questions.view"},
-        "rank": 3,
+        "rank": 4,
     },
 }
 
@@ -112,6 +118,16 @@ def _connect():
         )
         """
     )
+    # Gecmis surumde "editor" olarak adlandirilan rol, kapsami daraltilarak
+    # "icerik_yoneticisi"ye tasindi (soru yanitlama Destek Ekibi'ne gecti).
+    # Var olan hesaplarin rolu bir kereye mahsus otomatik guncellenir.
+    conn.execute("UPDATE users SET role = 'icerik_yoneticisi' WHERE role = 'editor'")
+    # Profil fotografi (Aşama 2): eski veritabanlarina sutunu ekle. SQLite'ta
+    # "ADD COLUMN IF NOT EXISTS" olmadigi icin hataya karsi kalkanla deneriz.
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN avatar_path TEXT")
+    except sqlite3.OperationalError:
+        pass  # sutun zaten var
     return conn
 
 
@@ -130,6 +146,9 @@ def _row_to_user(row):
         "created_at": row[5],
         "created_by": row[6],
         "last_login": row[7],
+        # ALTER TABLE ile eklenen sutun; eski satirlarda NULL, hic yoksa (cok
+        # eski Python sqlite3 surumlerinde) IndexError'a karsi guvenli erisim.
+        "avatar_path": row[8] if len(row) > 8 else None,
     }
 
 
@@ -262,6 +281,42 @@ def set_password(username, password):
         conn.commit()
     finally:
         conn.close()
+
+
+def change_own_password(username, current_password, new_password):
+    """Kendi sifresini degistirme (profil ekrani) - baskasinin sifresini
+    sifirlayan set_password'den farkli olarak, MEVCUT sifre dogrulanir."""
+    if verify(username, current_password) is None:
+        raise UserError("Mevcut şifre yanlış.")
+    set_password(username, new_password)
+
+
+def set_display_name(username, display_name):
+    display_name = (display_name or "").strip()
+    if not display_name:
+        raise UserError("Görünen ad boş olamaz.")
+    if get_user(username) is None:
+        raise UserError("Kullanıcı bulunamadı.")
+    conn = _connect()
+    try:
+        conn.execute("UPDATE users SET display_name = ? WHERE username = ?", (display_name, username))
+        conn.commit()
+    finally:
+        conn.close()
+    return get_user(username)
+
+
+def set_avatar_path(username, avatar_path):
+    """avatar_path=None -> fotograf kaldirilir, baslangictaki harf rumuzuna doner."""
+    if get_user(username) is None:
+        raise UserError("Kullanıcı bulunamadı.")
+    conn = _connect()
+    try:
+        conn.execute("UPDATE users SET avatar_path = ? WHERE username = ?", (avatar_path, username))
+        conn.commit()
+    finally:
+        conn.close()
+    return get_user(username)
 
 
 def delete_user(username):

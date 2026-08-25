@@ -26,7 +26,132 @@ def _tokenize(text):
     return TOKEN_RE.findall(folded)
 
 
-GEN_MODELS = ["gemini-flash-latest", "gemini-3.6-flash", "gemini-3.5-flash"]
+_VOWELS = set("aeıioöuüAEIİOÖUÜ")
+
+
+def _is_repeating_pattern(token):
+    """'asdasd' ('asd'*2), 'abab' ('ab'*2) gibi kisa bir birimin tekrariyla
+    olusan klavye karalamalarini yakalar - 4+ ayni harf tekrarinin
+    (bkz. _looks_like_word) yakalayamadigi durum."""
+    n = len(token)
+    for period in range(1, n // 2 + 1):
+        if n % period == 0 and token == token[:period] * (n // period):
+            return True
+    return False
+
+
+def _looks_like_word(token):
+    """Kaba bir 'gercek kelimeye benziyor mu' testi - sozluk kontrolu DEGIL,
+    sadece bariz klavye karalamasini ('dsds', 'asdasd', 'hjkl') elemeye
+    yeter: en az bir sesli harf icermeli VE ayni karakter/kisa birim ust
+    uste tekrar etmemeli (orn. 'aaaa', 'asdasd')."""
+    if not any(c in _VOWELS for c in token):
+        return False
+    if re.search(r"(.)\1{3,}", token):
+        return False
+    if _is_repeating_pattern(token):
+        return False
+    return True
+
+
+def _looks_like_gibberish(question):
+    """Kullanicinin mesaji ANLAMLI ama TEKNOFEST'le alakasiz bir cumle mi
+    ('sohbeti temizle' gibi - bu durumda genel arama esigini gecer, LLM'e
+    gider ve 'unrelated' olarak dogru siniflandirilir), yoksa hicbir anlam
+    tasimayan klavye karalamasi mi ('dsds', 'asdasd')? Ikincisi arama
+    esigini (SCORE_THRESHOLD) neredeyse hicbir zaman gecemeyip LLM'e hic
+    ulasmadan dogrudan 'hangi yarismayla ilgili?' sorusuna dusuyordu -
+    kullaniciya anlamsiz bir girdi icin sanki gercek bir soru sormus gibi
+    yarisma secimi dayatmak yaniltici. Bu fonksiyon o iki durumu LLM
+    COST'U OLMADAN (kaba bir sezgiyle) ayirir - bkz. answer_question."""
+    words = [w for w in question.strip().split() if w]
+    if not words:
+        return True
+    return not any(len(w) >= 2 and _looks_like_word(w) for w in words)
+
+
+# Kullanicinin SU AN yasadigi somut bir teknik/sistemsel sorunu metin
+# uzerinde (LLM'e sormadan) yakalamak icin acik, dusuk-belirsizlikli ifadeler.
+# LLM'e (bkz. FLAG_MARKER) TEK BASINA guvenilmiyor: kucuk/ucretsiz modeller
+# boyle ikincil bir bicimlendirme talimatini her zaman uygulamayabilir - bu
+# yuzden bariz sikayet ifadeleri METIN SEVIYESINDE de, LLM COST'U OLMADAN
+# ve LLM'in talimati unutma riski OLMADAN yakalanir (bkz. _reports_live_problem).
+_PROBLEM_SUBSTRINGS = [
+    # olumsuz eylem: giris/erisim
+    "giremiyorum", "giremedim", "girilmiyor", "girilemiyor",
+    "erisemiyorum", "erisilemiyor",
+    # olumsuz eylem: form/basvuru/kayit
+    "gonderilmiyor", "gonderemiyorum", "gonderilemiyor", "gonderilemedi",
+    "yuklenmiyor", "yukleyemiyorum", "yuklenemiyor", "yuklenemedi",
+    "kayit olamiyorum", "kayit yapamiyorum", "kaydolamiyorum",
+    "basvuru yapamiyorum", "basvuramiyorum", "basvurum gitmiyor",
+    "tamamlanamiyor", "kaydedilemiyor", "onaylanamiyor",
+    # olumsuz eylem: genel islevsellik
+    "acilmiyor", "acilamiyor", "acilmadi", "calismiyor", "calismadi",
+    "yanit veremiyor", "cevap veremiyor", "islem yapamiyorum",
+    # kaybolma/gorunmeme
+    "gozukmuyor", "gorunmuyor", "goremiyorum", "kayboldu", "silinmis",
+    # ariza/bozukluk bildirimi
+    "ariza", "bozuk", "coktu", "cokuyor", "kilitlendi", "donuyor",
+    "takildi", "askida kaldi", "hata aliyorum", "hata veriyor", "hata kodu",
+    "sorun var", "sikinti var", "problem var",
+]
+
+# Yukaridaki ifadeler VARSA BILE, kosullu/varsayimsal bir cumle icindeyse
+# ("... olursa ne yapmaliyim" gibi) bu GERCEK bir sikayet degil, genel bir
+# surec sorusudur (bkz. SourcesPage/FAQ tarzi "ne yapmaliyim" sorulari) -
+# yanlis pozitifi azaltmak icin bu isaretcilerden biri varsa flag atilmaz.
+_CONDITIONAL_MARKERS = [
+    "olursa", "yasarsam", "yasarsak", "yasanirsa", "karsilasirsam",
+    "karsilasirsak", "durumunda", "oldugu takdirde", "meydana gelirse",
+]
+
+
+def _reports_live_problem(question):
+    """Kullanicinin SU AN yasadigi somut bir teknik sorunu bildirip
+    bildirmedigini METIN SEVIYESINDE (LLM'den BAGIMSIZ) tespit eder - bkz.
+    _PROBLEM_SUBSTRINGS. _finalize'da LLM'in kendi isaretiyle (FLAG_MARKER)
+    OR'lanir: LLM isareti eklemeyi unutsa/atlasa BILE bariz sikayetler yine
+    de Sistem Yoneticisi'ne dusmelidir."""
+    folded = question.casefold().translate(_TR_FOLD)
+    if any(marker in folded for marker in _CONDITIONAL_MARKERS):
+        return False
+    return any(pat in folded for pat in _PROBLEM_SUBSTRINGS)
+
+
+# En hizli/en guvenilir once denenir: testlerde gemini-3.5-flash tutarli
+# sekilde ~1-2s'de yanit verdi; gemini-flash-latest zaman zaman "yuksek talep"
+# (503) yasiyor ve tek basina 30-60s'e kadar cikabiliyor - bu yuzden son
+# siraya alindi (tamamen cikarilmadi, cunku diger ikisi coken bir gunde
+# yedek olarak degerli).
+# Ucretsiz katmanda GUNLUK kota MODEL BASINA ayridir (bkz. Google AI Studio
+# "Rate limits" paneli): "flash"/"flash-lite" ailesi farkli kota kovalarina
+# sahip. Bu yuzden 3.x flash ailesi tukendiginde tamamen ayri bir kovaya
+# dusen "lite" varyantlari yedek olarak eklendi - gorevimiz (pasajlardan
+# 3-4 cumlelik kisa alinti, derin akil yurutme gerektirmiyor) lite modeller
+# icin de fazlasiyla yeterli. Listedeki her model tek tek denenip (bkz.
+# check_more_candidates.py tarzi test) calistigi dogrulandi; denenip
+# ELENENLER (kotasi zaten tukenmis VEYA gorev icin uygunsuz oldugu icin
+# kasten DISARIDA birakildi): gemini-2.5-flash / gemini-2.5-flash-lite
+# (bu anahtar icin "yeni kullanicilara kapali", 404 donuyor), gemini-pro-latest
+# / gemini-3.1-pro-preview / gemini-omni-flash-preview (test aninda zaten
+# kota asimi + agir/coklu-modal modeller, bu basit gorev icin gereksiz),
+# gemma-4-31b-it (sistem talimatimizla -uzunca bir Turkce prompt- 504 zaman
+# asimina dustu, kucuk 'a4b' varyanti sorunsuzdu).
+GEN_MODELS = [
+    "gemini-3.5-flash",
+    "gemini-3.6-flash",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-3.1-flash-lite-preview",
+    # Son care: Gemini ailesinin tamami (yukarisi) tukenirse tamamen farkli
+    # bir model ailesine (acik kaynak Gemma) ve dolayisiyla kesinlikle ayri
+    # bir kota kovasina gecer. Kucuk/hizli 'a4b' (MoE, ~4B aktif parametre)
+    # varyanti secildi; sistem talimatiyla test edildi, sorunsuz calisiyor.
+    "gemma-4-26b-a4b-it",
+]
 TOP_K = 14
 GENERAL_CATEGORIES = ["genel", "sss"]
 GENERAL_LABEL = "Genel Kurallar / SSS"
@@ -40,6 +165,25 @@ SUPPORT_CONTACT = "ilgili yarışmanın koordinatörüne veya TEKNOFEST resmi de
 INSUFFICIENT_EVIDENCE_MESSAGE = (
     "Bu konuda yeterli doğrulanmış bilgi bulamadım. Sorunuzu destek ekibine yönlendiriyorum."
 )
+
+# GENERAL_SYSTEM_PROMPT'taki kural 3'un LLM'e ciktisinda BIREBIR kullanmasini
+# istedigimiz, "TEKNOFEST/yarisma ile hicbir ilgisi yok" tespitini isaretleyen
+# essiz ifade (bkz. _generate: bu ifadeyi iceren cevaplar 'unrelated' olarak
+# damgalanir - "hangi yarismayla ilgili?" diye sormak yerine dogrudan destege
+# yonlendirilir). COMPETITION_SYSTEM_PROMPT'un "ilgili görünmüyor" ifadesiyle
+# (farkli bir kavram: secili yarisma DISINDA bir yarisma sorulmus) kasten
+# CAKISMAYACAK sekilde secildi.
+UNRELATED_MARKER = "hiçbir ilgisi yok"
+
+# Kullanicinin GENEL bir bilgi sorusu degil, SU AN kendi basina gelen somut
+# bir teknik/sistemsel aksakligi (sisteme giremiyorum, form gonderilmiyor vb.)
+# bildirdigini isaretlemek icin LLM'e ciktisina ekletilen essiz token (bkz.
+# _generate). answered/redirected gibi STATUS'TAN BAGIMSIZDIR: FAQ'ta genel
+# bir yonlendirme metni bulunup soru "answered" olarak isaretlense bile,
+# kullanicinin YASADIGI somut sorun cozulmus olmaz - Sistem Yoneticisi'ne
+# AYRICA, gercek zamanli bir sikayet olarak dusmesi gerekir (bkz.
+# qa_log.flagged_reports). Kullaniciya hic gosterilmeden yanittan silinir.
+FLAG_MARKER = "[[DESTEK_BILDIRIMI]]"
 
 COMPETITION_SYSTEM_PROMPT = f"""Sen TEKNOFEST yarışmaları için bir yarışmacı destek asistanısın.
 
@@ -59,7 +203,14 @@ KURALLAR:
    "Bu konuda şartnamede net bir bilgi bulamadım, {SUPPORT_CONTACT} yönlendirmenizi öneririm."
 3. Soru açıkça "{{competition}}" ile ilgisizse (başka bir yarışma/konu soruluyorsa), şunu söyle:
    "Bu soru şu an seçili olan '{{competition}}' bağlamıyla ilgili görünmüyor. Sorunuz farklı bir
-   yarışma/kategoriyle ilgiliyse lütfen doğru bağlamı belirtin.\""""
+   yarışma/kategoriyle ilgiliyse lütfen doğru bağlamı belirtin."
+4. Kullanıcı genel bir bilgi sorusu sormak yerine ŞU AN kendi başına gelen somut bir
+   teknik/sistemsel aksaklığı bildiriyorsa (örn. "sisteme giremiyorum", "başvuru formu
+   gönderilmiyor", "yüklediğim dosya kabul edilmiyor", "ödeme sayfası açılmıyor", "hesabım
+   kilitlendi"): yukarıdaki kurallara göre normal yanıtını yaz, SONRA yanıtının en sonuna,
+   yeni bir satırda, başka hiçbir açıklama eklemeden yalnızca şu işareti koy: {FLAG_MARKER}
+   Bu işareti YALNIZCA kullanıcı kendi yaşadığı somut bir sorunu bildirdiğinde kullan;
+   "başvuru nasıl yapılır", "hangi belgeler gerekli" gibi genel bilgi sorularında KULLANMA."""
 
 GENERAL_SYSTEM_PROMPT = f"""Sen TEKNOFEST yarışmaları için bir yarışmacı destek asistanısın.
 
@@ -75,9 +226,30 @@ ROLÜN:
 
 KURALLAR:
 1. Kaynak pasajlarda sorunun cevabı açıkça varsa: kısa ve doğrudan yanıt ver.
+1a. Soru, katılım şartı/yaş/tarih/ödül gibi normalde yarışmadan yarışmaya değişebilecek
+    bir konudaysa AMA kaynak pasajlar TÜM yarışmalar için geçerli genel bir örüntüyü
+    açıkça gösteriyorsa (örn. "farklı eğitim seviyelerinden/mesleklerden katılım
+    mümkündür" türünde genel bir SSS kaydı): bu genel bilgiyi kaynağa dayanarak ver,
+    ardından kesin/detaylı şartların yarışmaya göre değişebileceğini kısaca belirt.
+    Bu durumda kullanıcıya hangi yarışmayı kastettiğini SORMA; sadece belirtilen not
+    yeterlidir - kullanıcı isterse zaten bir yarışma adı vererek detay isteyebilir.
 2. Kaynak pasajlar soruyu net karşılamıyorsa, bilgiler çelişkiliyse ya da soru
-   yorum/takdir gerektiriyorsa: ASLA yanıt uydurma. Şunu söyle:
+   yorum/takdir gerektiriyorsa (AMA soru genel olarak TEKNOFEST/yarışma konusuyla
+   ilgili): ASLA yanıt uydurma. Şunu söyle:
    "Bu konuda şartnamede net bir bilgi bulamadım, {SUPPORT_CONTACT} yönlendirmenizi öneririm."
+3. Soru TEKNOFEST veya herhangi bir yarışmayla {UNRELATED_MARKER} ise (günlük sohbet,
+   hava durumu, genel kültür, kişisel tercih vb. TEKNOFEST dışı bir konu): kaynaklarla
+   zorlama bir bağlantı kurmaya ÇALIŞMA ve kullanıcıya hangi yarışmayı kastettiğini
+   SORMA - bu soru hiçbir yarışmayla ilgili değil. "Destek ekibine yönlendiriyorum" gibi
+   bir ifade KULLANMA. Sadece şunu söyle:
+   "Bu soru TEKNOFEST yarışmalarıyla {UNRELATED_MARKER}."
+4. Kullanıcı genel bir bilgi sorusu sormak yerine ŞU AN kendi başına gelen somut bir
+   teknik/sistemsel aksaklığı bildiriyorsa (örn. "sisteme giremiyorum", "başvuru formu
+   gönderilmiyor", "yüklediğim dosya kabul edilmiyor", "ödeme sayfası açılmıyor", "hesabım
+   kilitlendi"): yukarıdaki kurallara göre normal yanıtını yaz, SONRA yanıtının en sonuna,
+   yeni bir satırda, başka hiçbir açıklama eklemeden yalnızca şu işareti koy: {FLAG_MARKER}
+   Bu işareti YALNIZCA kullanıcı kendi yaşadığı somut bir sorunu bildirdiğinde kullan;
+   "başvuru nasıl yapılır", "hangi belgeler gerekli" gibi genel bilgi sorularında KULLANMA.
 """
 
 
@@ -195,6 +367,30 @@ def _hybrid_search(question, where_filter, cache_key, top_k=TOP_K, fetch_k=45, r
         if len(hits) >= top_k:
             break
 
+    # Yazim hatali/serbest sorgularda BM25 (tam token eslesmesi) yanlis
+    # etkileyip RRF siralamasini bozabilir: gercekte cok alakali (yuksek ham
+    # cosine benzerligi) bir parca, sadece BM25'te kotu sirlandigi icin
+    # top_k disinda kalabilir (bkz. test: "yarismlara" yazim hatasinda, dogru
+    # cevabi iceren SSS kaydi ham skoru 0.84 iken RRF sirasinda 30. siraya
+    # dustu, top_k=14'e giremedi). Bu yuzden secilen kumedeki en dusuk ham
+    # skorlu parcayi, havuzdaki cok daha yuksek ham skorlu (CONFIDENCE_HIGH
+    # ustu) bir aday varsa onunla degistiriyoruz - top_k boyutu buyumeden
+    # siralama yazim hatasina karsi saglamlasir.
+    dense_sorted = sorted(dense_score_by_id.items(), key=lambda kv: -kv[1])
+    for cid, dscore in dense_sorted:
+        if dscore < CONFIDENCE_HIGH or not hits:
+            break
+        doc, meta = info_by_id[cid]
+        key = doc.strip()[:300]
+        if key in seen_text:
+            continue
+        weakest_idx = min(range(len(hits)), key=lambda i: hits[i]["score"])
+        if hits[weakest_idx]["score"] >= dscore:
+            continue
+        seen_text.discard(hits[weakest_idx]["text"].strip()[:300])
+        seen_text.add(key)
+        hits[weakest_idx] = {"text": doc, "metadata": meta, "score": dscore}
+
     # Esik/guven hesaplamasi somut (BM25 degil) cosine benzerligine dayanmali;
     # RRF ile yeniden siralanan hits[0] bir BM25-only sonuc olabilir.
     max_dense_score = max(dense_score_by_id.values(), default=0.0)
@@ -213,21 +409,65 @@ def search_competition(question, competition, top_k=TOP_K, fetch_k=45, rrf_k=60)
     return _hybrid_search(question, where_filter, competition, top_k, fetch_k, rrf_k)
 
 
+# Bizim goreviniz (verilen pasajlardan 3-4 cumlelik kisa bir alinti) hicbir
+# derin akil yurutme gerektirmiyor; ama modeller varsayilan olarak (ozellikle
+# 3.x ailesi) yanit vermeden once uzun bir "thinking" asamasi calistiriyor -
+# olculdugunde bu TEK BASINA 10 saniyeye kadar gecikme ekliyor. Bunu kapatan
+# parametrenin adi modelden modele degisiyor (bazisi 'thinking_level', bazisi
+# 'thinking_budget' kabul ediyor, digerini 400 ile reddediyor) - bu yuzden
+# ilk denemede en yaygin/hafif secenegi kullanip, parametre reddedilirse
+# (yanlis parametre - uykuya gerek yok) bir sonrakini hemen deneriz. 'none'
+# son çare: bazi (ozellikle 'lite'/preview) modeller thinking_config alanini
+# hic kabul etmiyor ve bunu "invalid argument" ile reddediyor - bu durumda
+# thinking_config'i tamamen cikarip duz istek deneriz.
+_THINKING_STRATEGIES = ["level", "budget", "none"]
+
+# SDK varsayilaninda tek bir cagriya ust sinir YOK - Gemini "yuksek talep"
+# yasadiginda (503) bu, tek istegin dakikalarca askida kalmasina (ve kullanici
+# tarafinda "Failed to fetch"/zaman asimina) yol acabiliyor. Her cagriya kisa
+# bir tavan koyup, o model/strateji basarisiz olursa hemen bir sonrakine
+# gecmek, "hicbir zaman yanit vermeyen" bir cagriya kilitlenmekten cok daha
+# iyidir - MVP icin gecikmeyi sinirlamak, tam da GEN_MODELS listesindeki en
+# yavas modeli sonsuza dek beklemekten daha degerlidir.
+_GEMINI_TIMEOUT_MS = 12_000
+
+
+def _config_for(system_prompt, thinking):
+    kwargs = {"system_instruction": system_prompt, "temperature": 0.2}
+    if thinking == "level":
+        kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)
+    elif thinking == "budget":
+        kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+    return types.GenerateContentConfig(**kwargs)
+
+
 def _call_gemini(prompt, system_prompt):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         sys.exit("GEMINI_API_KEY ortam degiskeni tanimli degil.")
-    client = genai.Client(api_key=api_key)
-    config = types.GenerateContentConfig(system_instruction=system_prompt, temperature=0.2)
+    client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=_GEMINI_TIMEOUT_MS))
     last_error = None
     for model in GEN_MODELS:
-        for attempt in range(3):
+        for attempt, thinking in enumerate(_THINKING_STRATEGIES):
             try:
+                config = _config_for(system_prompt, thinking)
                 response = client.models.generate_content(model=model, contents=prompt, config=config)
                 return response.text.strip()
             except Exception as e:
                 last_error = e
-                time.sleep(2 * (attempt + 1))
+                # Modelin desteklemedigi bir 'thinking' parametresi gonderdik -
+                # bu geçici bir sunucu yuku degil, sonraki denemede farkli
+                # parametreyi hemen (uyumadan) deneriz. Bazi modeller bunu
+                # mesajinda 'thinking' gecmeyen genel bir 400 INVALID_ARGUMENT
+                # ile reddediyor (bkz. gemini-3.5-flash-lite) - bu da ayni
+                # sekilde ele alinmali, aksi halde 'none' stratejisi hic
+                # denenmeden modelden vazgecilir. Diger tum hatalarda (429
+                # kota/503/zaman asimi dahil) kisa bir bekleme sonrasi ayni
+                # modelde son bir deneme yerine dogrudan siradaki modele geceriz.
+                msg = str(e).lower()
+                if "thinking" not in msg and "invalid_argument" not in msg:
+                    time.sleep(1)
+                    break
     raise RuntimeError(f"Uretim basarisiz: {last_error}")
 
 
@@ -243,10 +483,33 @@ def _generate(question, hits, max_dense_score, system_prompt, out_of_scope_check
     try:
         answer = _call_gemini(prompt, system_prompt)
     except RuntimeError:
+        # LLM cagrisi basarisiz oldu (kota/503/zaman asimi) - bu, kaynaklarda
+        # kanit yetersizligi degil, teknik bir aksakliktir. Asagidaki metin
+        # eslesmesi ("SUPPORT_CONTACT in answer" -> "redirected") ile
+        # karismasin diye status'u burada, cevap metnine bakmadan sabitliyoruz;
+        # aksi halde gercekte alakali kaynak varken bile kullaniciya "kanit
+        # yok" mesaji gider (bkz. _try_general/_try_competition).
         answer = f"Şu anda teknik bir sorun nedeniyle yanıt üretemiyorum, {SUPPORT_CONTACT} yönlendirmenizi öneririm."
+        return {
+            "answer": answer,
+            "status": "technical_error",
+            "confidence": format_confidence(max_dense_score),
+            "top_score": max_dense_score,
+            "sources": hits,
+        }
+
+    # Kullanicinin ANLIK yasadigi somut bir sorunu bildirip bildirmedigi
+    # (bkz. FLAG_MARKER) status'tan BAGIMSIZ, ayri bir sinyaldir; asagidaki
+    # status siniflandirmasindan ONCE cikarilir ki isaret hicbir kosulda
+    # kullaniciya gosterilen metne karismasin.
+    flagged = FLAG_MARKER in answer
+    if flagged:
+        answer = answer.replace(FLAG_MARKER, "").rstrip()
 
     if out_of_scope_check and "ilgili görünmüyor" in answer:
         status = "out_of_scope"
+    elif UNRELATED_MARKER in answer:
+        status = "unrelated"
     elif SUPPORT_CONTACT in answer:
         status = "redirected"
     else:
@@ -259,29 +522,38 @@ def _generate(question, hits, max_dense_score, system_prompt, out_of_scope_check
         "confidence": format_confidence(max_dense_score),
         "top_score": max_dense_score,
         "sources": hits,
+        "flagged": flagged,
     }
 
 
 def _try_general(question):
-    """Genel kaynaklarda arar ve LLM'e sorar. Sadece net bir cevap
-    URETILIRSE (status == 'answered') sonucu dondurur; skor esigi
-    gecilmezse VEYA LLM 'net bilgi yok' derse None doner ki yonlendirme
-    zinciri bir sonraki adima (yarisma-ozel arama / soru) gecebilsin."""
+    """Genel kaynaklarda arar ve LLM'e sorar. Net bir cevap URETILIRSE
+    (status == 'answered'), LLM cagrisi teknik nedenle basarisiz olduysa
+    (status == 'technical_error') VEYA soru TEKNOFEST/yarismalarla hicbir
+    ilgisi yoksa (status == 'unrelated') sonucu dondurur; skor esigi
+    gecilmezse VEYA LLM 'bu yarismayla ilgili net bilgi yok ama konu genel
+    olarak TEKNOFEST ile ilgili' derse ('redirected') None doner ki
+    yonlendirme zinciri bir sonraki adima (yarisma-ozel arama / hangi
+    yarisma oldugunu sorma) gecebilsin. 'technical_error' VE 'unrelated' bir
+    sonraki adima GECMEZ: birincisinde API cagrisi ayni sekilde basarisiz
+    olacagindan, ikincisinde ise soru zaten hicbir yarismayla ilgili
+    olmadigindan, "hangi yarisma?" diye sormak anlamsiz olur - kullaniciya
+    dogrudan (yanlislikla 'kanit yok' degil) durumun kendisi iletilir."""
     hits, score = search_general(question)
     if not hits or score < SCORE_THRESHOLD:
         return None
     result = _generate(question, hits, score, GENERAL_SYSTEM_PROMPT, out_of_scope_check=False)
-    return result if result["status"] == "answered" else None
+    return result if result["status"] in ("answered", "technical_error", "unrelated") else None
 
 
 def _try_competition(question, competition):
-    """search_general'in ikizi; yalnizca net bir cevap uretilirse sonuc doner."""
+    """search_general'in ikizi; ayni mantik gecerlidir (bkz. _try_general)."""
     hits, score = search_competition(question, competition)
     if not hits or score < SCORE_THRESHOLD:
         return None
     system_prompt = COMPETITION_SYSTEM_PROMPT.replace("{competition}", competition)
     result = _generate(question, hits, score, system_prompt, out_of_scope_check=True)
-    return result if result["status"] == "answered" else None
+    return result if result["status"] in ("answered", "technical_error") else None
 
 
 def _finalize(question, result, competition_label, current_competition):
@@ -296,6 +568,13 @@ def _finalize(question, result, competition_label, current_competition):
             "top_score": None,
             "sources": [],
         }
+    # LLM'in kendi isaretiyle (result["flagged"], bkz. _generate/FLAG_MARKER)
+    # metin-seviyeli heuristigi (bkz. _reports_live_problem) OR'lar: LLM
+    # ikincil bicimlendirme talimatini atlasa/unutsa BILE (kucuk/ucretsiz
+    # modellerde beklenen bir risk) bariz sikayetler yine de Sistem
+    # Yoneticisi'ne dusmelidir - status'tan (dahil low_confidence/
+    # needs_competition gibi zaten bildirilen durumlardan) BAGIMSIZDIR.
+    flagged = result.get("flagged", False) or _reports_live_problem(question)
     log_turn(
         competition=competition_label,
         question=question,
@@ -303,8 +582,10 @@ def _finalize(question, result, competition_label, current_competition):
         status=result["status"],
         top_score=round(result["top_score"], 4) if result["top_score"] is not None else None,
         timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
+        flagged=flagged,
     )
     result["current_competition"] = current_competition
+    result["flagged"] = flagged
     return result
 
 
@@ -338,14 +619,35 @@ def answer_question(question, current_competition=None):
         return _finalize(question, result, GENERAL_LABEL, current_competition)
 
     if current_competition is None:
-        return {
-            "answer": "Bu sorunuz hangi yarışmayla ilgili? Lütfen yarışma adını belirtin.",
+        if _looks_like_gibberish(question):
+            # Anlamsiz girdiye ("dsds" gibi) "hangi yarismayla ilgili?" diye
+            # sormak yaniltici - kullanici gercek bir soru sormamisken sanki
+            # sormus gibi yarisma secimi dayatilmis olur (bkz. _looks_like_gibberish).
+            result = {
+                "answer": (
+                    "Sorunuzu tam olarak anlayamadım. TEKNOFEST yarışmalarıyla "
+                    "ilgili sorunuzu biraz daha açık yazar mısınız?"
+                ),
+                "status": "unclear",
+                "confidence": None,
+                "top_score": None,
+                "sources": [],
+            }
+            return _finalize(question, result, GENERAL_LABEL, None)
+
+        # Onceden bu dal hicbir yere loglanmiyordu: kullanici yarisma secmeden
+        # cikarsa (ya da hic secmezse) soru qa_log'a hic dusmuyor, Sistem
+        # Yoneticisi'nin bundan haberi olmuyordu. Simdi diger tum dallarla
+        # ayni sekilde _finalize'dan geciyor ki en azindan kayit altina alinsin
+        # (bkz. qa_log.needs_competition_questions).
+        result = {
+            "answer": "Bu sorunuz hangi yarışmayla ilgili?",
             "status": "needs_competition",
             "confidence": None,
             "top_score": None,
             "sources": [],
-            "current_competition": None,
         }
+        return _finalize(question, result, GENERAL_LABEL, None)
 
     result = _try_competition(question, current_competition)
     return _finalize(question, result, current_competition, current_competition)

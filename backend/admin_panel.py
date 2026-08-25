@@ -13,7 +13,13 @@ from dotenv import load_dotenv
 
 import sss_store
 import users as user_store
-from competitions import ROOT, list_competitions, list_real_competitions
+from competitions import (
+    ROOT,
+    InvalidCompetitionName,
+    list_competitions,
+    list_real_competitions,
+    sanitize_competition_name,
+)
 from document_registry import (
     deactivate_all_versions,
     list_documents,
@@ -68,8 +74,10 @@ def login():
 
 def add_competition():
     name = input("Yeni yarışma/kategori adı: ").strip()
-    if not name:
-        print("Boş isim, iptal edildi.")
+    try:
+        name = sanitize_competition_name(name)
+    except InvalidCompetitionName as e:
+        print(str(e))
         return
     path = ROOT / name
     if path.exists():
@@ -91,6 +99,11 @@ def _pick_competition():
 
 def upload_or_update_source():
     competition = _pick_competition()
+    try:
+        competition = sanitize_competition_name(competition)
+    except InvalidCompetitionName as e:
+        print(str(e))
+        return
     target_dir = ROOT / competition
     target_dir.mkdir(parents=True, exist_ok=True)
 

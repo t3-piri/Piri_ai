@@ -9,3 +9,14 @@ qa_log.jsonl
 documents.db
 users.db
 sss_entries.jsonl
+avatars/
+frontend/node_modules/
+frontend/dist/
+
+# Kisisel editor/ajan yapilandirmasi ve notlar - proje koduyla ilgisiz
+.obsidian/
+obsidian-vault/
+.cursorrules
+.agents/
+AGENTS.md
+GEMINI.md
