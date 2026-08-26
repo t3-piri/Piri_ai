@@ -12,6 +12,11 @@ import { apiPost, apiGet, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const COMPETITION_KEY = "piri_competition";
+// Takip sorularının ("ödül ne" gibi) önceki mesaja bakılarak anlaşılabilmesi
+// için backend'e gönderilen sohbet geçmişi penceresi. Modelin bağlam
+// penceresinin (32.768 token) çok altında, pratikte hiç dolmayacak kadar
+// geniş bir sınır — kullanıcıyla birlikte kararlaştırıldı.
+const HISTORY_WINDOW = 30;
 
 /** Turkce buyuk/kucuk harf donusumu I/i/İ/ı harflerini normal Latin
  * kasidan farkli esler (toLocaleLowerCase("tr") ile "IHA" -> "ıha",
@@ -416,9 +421,10 @@ export default function ChatPage() {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
+      const history = messages.slice(-HISTORY_WINDOW).map((m) => ({ role: m.role, text: m.text }));
       const data = await apiPost(
         "/api/ask",
-        { question, context: contextOverride !== undefined ? contextOverride : competition },
+        { question, context: contextOverride !== undefined ? contextOverride : competition, history },
         { signal: controller.signal }
       );
       if (data.current_competition) setCompetition(data.current_competition);

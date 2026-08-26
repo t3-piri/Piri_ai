@@ -1,0 +1,39 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "t3-piri",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "piri-rag-db",
+      "database_id": "000ddaea-21f7-4a87-bcc0-4850aedd0ac8",
+      "remote": true
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "PIRI_DOCS_KV",
+      "id": "dee4445c52114b68abc77fdf8ad28a16",
+      "remote": true
+    }
+  ],
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "piri-rag-chunks",
+      "remote": true
+    }
+  ],
+  "ai": {
+    "binding": "AI",
+    "remote": true
+  },
+  "assets": {
+    "directory": "../frontend/dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/avatars/*"],
+    "not_found_handling": "single-page-application"
+  }
+}

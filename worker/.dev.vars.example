@@ -1,0 +1,13 @@
+GEMINI_API_KEY=your-gemini-api-key-here
+
+# Ilk calistirmada (D1'de hic kullanici yokken) olusturulan SAHIP hesabinin
+# bilgileri. Sonrasinda gercek sifre panelden veya wrangler secret put ile
+# yonetilir, bu deger yalnizca ilk-kurulum icindir.
+ADMIN_PASSWORD=change-me
+OWNER_USERNAME=sahip
+OWNER_DISPLAY_NAME=Sistem Sahibi
+
+# Ayarlar panelinden girilen Gemini API anahtarinin D1'de sifrelenerek
+# saklanmasi icin kullanilan AES-GCM anahtari (32 byte, base64). Uretmek icin:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+SETTINGS_ENC_KEY=your-32-byte-base64-key-here

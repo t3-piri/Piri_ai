@@ -15,6 +15,11 @@ avatars/
 frontend/node_modules/
 frontend/dist/
 
+# Cloudflare Workers yerel derleme/onbellek durumu - regenerable, kisisel
+# makineye ozel, gizli deger icermez ama tekrar uretilebilir/gereksiz
+.wrangler/
+worker/node_modules/
+
 # Kisisel editor/ajan yapilandirmasi ve notlar - proje koduyla ilgisiz
 .obsidian/
 obsidian-vault/

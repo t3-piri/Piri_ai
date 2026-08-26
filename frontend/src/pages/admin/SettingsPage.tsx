@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, KeyRound, Loader2, Trash2, UserRound } from "lucide-react";
+import { Camera, Eye, EyeOff, KeyRound, Loader2, Power, Sparkles, Trash2, UserRound } from "lucide-react";
 import { GlowCard } from "@/components/ui/glow-card";
 import { useAuth } from "@/context/AuthContext";
-import { apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiPost, ApiError } from "@/lib/api";
+
+interface GeminiKeyStatus {
+  configured: boolean;
+  enabled: boolean;
+  masked: string | null;
+  source: "db" | "secret" | "none";
+}
 
 const cardClass =
   "rounded-xl bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-[rgba(255,255,255,0.08)] p-5 shadow-[0_4px_8px_rgba(0,0,0,0.08)]";
@@ -36,9 +43,27 @@ export default function SettingsPage() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
 
+  const [geminiStatus, setGeminiStatus] = useState<GeminiKeyStatus | null>(null);
+  const [geminiKeyInput, setGeminiKeyInput] = useState("");
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [savingGeminiKey, setSavingGeminiKey] = useState(false);
+  const [togglingGemini, setTogglingGemini] = useState(false);
+  const [deletingGemini, setDeletingGemini] = useState(false);
+  const [geminiError, setGeminiError] = useState<string | null>(null);
+  const [geminiSuccess, setGeminiSuccess] = useState<string | null>(null);
+
   useEffect(() => {
     setDisplayName(user?.display_name ?? "");
   }, [user?.display_name]);
+
+  useEffect(() => {
+    if (!user?.is_owner) return;
+    apiGet("/api/admin/settings/gemini")
+      .then((status: GeminiKeyStatus) => setGeminiStatus(status))
+      .catch(() => {
+        /* durum yüklenemedi, kart hata göstermeden sessizce "yükleniyor" kalır */
+      });
+  }, [user?.is_owner]);
 
   if (!user) {
     return <p className="text-sm text-zinc-500">Yükleniyor...</p>;
@@ -125,6 +150,65 @@ export default function SettingsPage() {
       setPasswordError(err instanceof ApiError ? err.message : "Şifre değiştirilemedi.");
     } finally {
       setSavingPassword(false);
+    }
+  }
+
+  async function handleSaveGeminiKey(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = geminiKeyInput.trim();
+    setGeminiSuccess(null);
+    if (!trimmed) {
+      setGeminiError("API anahtarı boş olamaz.");
+      return;
+    }
+    setGeminiError(null);
+    setSavingGeminiKey(true);
+    try {
+      const status = await apiPost("/api/admin/settings/gemini", { api_key: trimmed });
+      setGeminiStatus(status);
+      setGeminiKeyInput("");
+      setShowGeminiKey(false);
+      setGeminiSuccess("API anahtarı kaydedildi.");
+    } catch (err) {
+      setGeminiError(err instanceof ApiError ? err.message : "API anahtarı kaydedilemedi.");
+    } finally {
+      setSavingGeminiKey(false);
+    }
+  }
+
+  async function handleToggleGemini() {
+    if (!geminiStatus) return;
+    setGeminiError(null);
+    setGeminiSuccess(null);
+    setTogglingGemini(true);
+    try {
+      const status = await apiPost("/api/admin/settings/gemini/toggle", { enabled: !geminiStatus.enabled });
+      setGeminiStatus(status);
+    } catch (err) {
+      setGeminiError(err instanceof ApiError ? err.message : "Durum değiştirilemedi.");
+    } finally {
+      setTogglingGemini(false);
+    }
+  }
+
+  async function handleDeleteGeminiKey() {
+    if (
+      !window.confirm(
+        "Kayıtlı Gemini API anahtarını silmek istediğinize emin misiniz? Anahtar silinince sistem, varsa deploy sırasında ayarlanmış varsayılan anahtara döner, yoksa yedek modeli kullanır."
+      )
+    )
+      return;
+    setGeminiError(null);
+    setGeminiSuccess(null);
+    setDeletingGemini(true);
+    try {
+      const status = await apiPost("/api/admin/settings/gemini/delete");
+      setGeminiStatus(status);
+      setGeminiSuccess("API anahtarı silindi.");
+    } catch (err) {
+      setGeminiError(err instanceof ApiError ? err.message : "API anahtarı silinemedi.");
+    } finally {
+      setDeletingGemini(false);
     }
   }
 
@@ -291,6 +375,104 @@ export default function SettingsPage() {
           </button>
         </form>
       </GlowCard>
+
+      {user.is_owner && (
+        <GlowCard glowColor="green" className={`${cardClass} md:col-span-2`}>
+          <h3 className="font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
+            <Sparkles size={15} className="text-zinc-400" />
+            Gemini API Anahtarı
+          </h3>
+          <p className="text-xs text-zinc-500 mt-1">
+            Yanıt üretiminde kullanılan Gemini anahtarını buradan girin, değiştirin veya devre dışı bırakın. Anahtar
+            şifrelenmiş olarak saklanır ve kaydedildikten sonra tekrar tam olarak gösterilmez.
+          </p>
+
+          {geminiStatus ? (
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+              <span
+                className={`px-2 py-1 rounded-md font-medium ${
+                  geminiStatus.source === "db"
+                    ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400"
+                    : geminiStatus.source === "secret"
+                      ? "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400"
+                      : "bg-zinc-100 text-zinc-500 dark:bg-white/5 dark:text-zinc-400"
+                }`}
+              >
+                {geminiStatus.source === "db"
+                  ? "Aktif (panelden girilen anahtar kullanılıyor)"
+                  : geminiStatus.source === "secret"
+                    ? "Aktif (sistem varsayılan anahtarı kullanılıyor)"
+                    : "Kapalı — yanıtlar yedek modele düşüyor"}
+              </span>
+              {geminiStatus.masked && (
+                <span className="font-mono text-zinc-500 dark:text-zinc-400">{geminiStatus.masked}</span>
+              )}
+            </div>
+          ) : (
+            <p className="mt-4 text-xs text-zinc-400">Durum yükleniyor...</p>
+          )}
+
+          <form onSubmit={handleSaveGeminiKey} className="mt-4 space-y-2">
+            <label className={labelClass} htmlFor="gemini-key-input">
+              {geminiStatus?.configured ? "Anahtarı Değiştir" : "Yeni API Anahtarı"}
+            </label>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  id="gemini-key-input"
+                  type={showGeminiKey ? "text" : "password"}
+                  autoComplete="off"
+                  value={geminiKeyInput}
+                  onChange={(e) => {
+                    setGeminiKeyInput(e.target.value);
+                    setGeminiSuccess(null);
+                  }}
+                  placeholder="AIza..."
+                  className={`${inputClass} pr-10`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowGeminiKey((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                  tabIndex={-1}
+                >
+                  {showGeminiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+              <button type="submit" disabled={savingGeminiKey} className={primaryButtonClass}>
+                {savingGeminiKey && <Loader2 size={14} className="animate-spin" />}
+                {savingGeminiKey ? "Kaydediliyor..." : "Kaydet"}
+              </button>
+            </div>
+          </form>
+
+          {geminiStatus?.configured && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleToggleGemini}
+                disabled={togglingGemini}
+                className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-white/10 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-white/5 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                {togglingGemini ? <Loader2 size={13} className="animate-spin" /> : <Power size={13} />}
+                {geminiStatus.enabled ? "Devre Dışı Bırak" : "Yeniden Etkinleştir"}
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteGeminiKey}
+                disabled={deletingGemini}
+                className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-white/10 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                {deletingGemini ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                {deletingGemini ? "Siliniyor..." : "Anahtarı Sil"}
+              </button>
+            </div>
+          )}
+
+          {geminiError && <p className="mt-2 text-xs text-red-500">{geminiError}</p>}
+          {geminiSuccess && <p className="mt-2 text-xs text-emerald-600">{geminiSuccess}</p>}
+        </GlowCard>
+      )}
 
       <GlowCard
         glowColor="cyan"
