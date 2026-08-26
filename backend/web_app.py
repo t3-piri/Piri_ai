@@ -845,6 +845,16 @@ def _free_port(preferred=8000, tries=20):
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.environ.get("PIRI_PORT") or _free_port())
-    print(f"\n  >>> Piri web arayuzu:  http://127.0.0.1:{port}\n")
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    # PORT: Railway/Render gibi PaaS'lerin container'a otomatik verdigi
+    # standart degisken. Varsa container'da calistigimizi varsayip disaridan
+    # ulasilabilmesi icin 0.0.0.0'a bind ederiz; yoksa yerel double-click
+    # kullanimini (127.0.0.1 + PIRI_PORT/bos port arama) aynen koruruz.
+    container_port = os.environ.get("PORT")
+    if container_port:
+        host = "0.0.0.0"
+        port = int(container_port)
+    else:
+        host = "127.0.0.1"
+        port = int(os.environ.get("PIRI_PORT") or _free_port())
+    print(f"\n  >>> Piri web arayuzu:  http://{host}:{port}\n")
+    uvicorn.run(app, host=host, port=port, log_level="warning")
