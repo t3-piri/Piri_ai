@@ -370,7 +370,7 @@ def manage_users():
             username = pick_user()
             if not username:
                 return
-            if input(f"Sahiplik @{username} hesabına devredilecek, siz Yönetici olacaksınız. "
+            if input(f"Sahiplik @{username} hesabına devredilecek, siz İçerik Yöneticisi olacaksınız. "
                      "Onaylıyor musunuz? [e/H]: ").strip().lower() != "e":
                 print("İptal edildi.")
                 return

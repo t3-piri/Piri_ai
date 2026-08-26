@@ -1,8 +1,10 @@
-import { useEffect, useState, Fragment, type FormEvent } from "react";
-import { Users, UserPlus, KeyRound, Trash2, Crown, ShieldCheck } from "lucide-react";
+import { useEffect, useRef, useState, Fragment, type FormEvent } from "react";
+import { createPortal } from "react-dom";
+import { Users, UserPlus, KeyRound, Trash2, Crown, ShieldCheck, ChevronDown, Check } from "lucide-react";
 import { GlowCard } from "@/components/ui/glow-card";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { useAuth, type Role } from "@/context/AuthContext";
+import { cn } from "@/lib/utils";
 
 const cardClass =
   "rounded-xl bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-[rgba(255,255,255,0.08)] p-5 shadow-[0_4px_8px_rgba(0,0,0,0.08)]";
@@ -27,8 +29,6 @@ type UsersResponse = {
 
 const inputClass =
   "h-9 rounded-lg border border-zinc-200 dark:border-white/10 bg-white dark:bg-white/5 px-2.5 text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 outline-none focus:ring-2 focus:ring-[#1e3a5f]/30 dark:focus:ring-white/20";
-const selectSmClass =
-  "h-7 rounded-md border border-zinc-200 dark:border-white/10 bg-white dark:bg-white/5 px-1.5 text-[11px] text-zinc-700 dark:text-zinc-300 outline-none disabled:opacity-50";
 const btnPrimary =
   "h-9 rounded-lg bg-[#1e3a5f] hover:bg-[#16314f] text-white text-sm font-medium px-4 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
 const btnPrimarySm =
@@ -45,6 +45,108 @@ function roleBadgeClasses(role: string) {
     return "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20";
   }
   return "bg-zinc-100 dark:bg-white/5 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-white/10";
+}
+
+// Native <select> acildiginda popup listesi tarayici/OS temasini kullanir
+// (CSS ile stillendirilemez) - koyu temada bu, uygulamanin geri kalanindan
+// kopan duz beyaz bir kutu olarak gorunuyordu. CompetitionSelector'daki
+// (ChatPage.tsx) ayni portal yaklasimi burada rol secimi icin tekrarlanir.
+function RoleSelect({
+  value,
+  options,
+  onChange,
+  disabled,
+  size = "sm",
+}: {
+  value: string;
+  options: Role[];
+  onChange: (key: string) => void;
+  disabled?: boolean;
+  size?: "sm" | "md";
+}) {
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ left: number; top: number; width: number } | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function close(e: MouseEvent) {
+      const target = e.target as Node;
+      if (wrapRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const updateCoords = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (rect) setCoords({ left: rect.left, top: rect.bottom + 4, width: rect.width });
+    };
+    updateCoords();
+    window.addEventListener("resize", updateCoords);
+    window.addEventListener("scroll", updateCoords, true);
+    return () => {
+      window.removeEventListener("resize", updateCoords);
+      window.removeEventListener("scroll", updateCoords, true);
+    };
+  }, [open]);
+
+  const selected = options.find((r) => r.key === value);
+  const isSm = size === "sm";
+
+  return (
+    <div ref={wrapRef} className="relative inline-block">
+      <button
+        ref={buttonRef}
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex items-center justify-between gap-1.5 rounded-md border outline-none transition-colors",
+          "border-zinc-200 dark:border-white/10 bg-white dark:bg-white/5 text-zinc-700 dark:text-zinc-300",
+          "focus:ring-2 focus:ring-[#1e3a5f]/30 dark:focus:ring-white/20 disabled:opacity-50 disabled:cursor-not-allowed",
+          isSm ? "h-7 px-1.5 text-[11px] min-w-[128px]" : "h-9 px-2.5 text-sm w-full"
+        )}
+      >
+        <span className="truncate">{selected?.label ?? value}</span>
+        <ChevronDown size={isSm ? 12 : 14} className={cn("shrink-0 text-zinc-400 transition-transform", open && "rotate-180")} />
+      </button>
+      {open &&
+        coords &&
+        createPortal(
+          <div
+            ref={panelRef}
+            style={{ position: "fixed", left: coords.left, top: coords.top, width: Math.max(coords.width, 160) }}
+            className="z-50 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-2xl dark:border-white/10 dark:bg-[#1d1d1d]"
+          >
+            {options.map((r) => (
+              <button
+                key={r.key}
+                type="button"
+                onClick={() => {
+                  onChange(r.key);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs transition-colors",
+                  "hover:bg-zinc-100 dark:hover:bg-white/[0.06]",
+                  r.key === value ? "font-semibold text-[#1e3a5f] dark:text-violet-400" : "text-zinc-700 dark:text-zinc-300"
+                )}
+              >
+                <span className="truncate">{r.label}</span>
+                {r.key === value && <Check size={13} className="shrink-0" />}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+    </div>
+  );
 }
 
 export default function UsersPage() {
@@ -158,7 +260,7 @@ export default function UsersPage() {
 
   async function handleTransfer(username: string) {
     const ok = window.confirm(
-      `Sahipliği "${username}" kullanıcısına devretmek istediğinize emin misiniz?\n\nBu işlemden sonra kendi hesabınız "Yönetici" rolüne düşer ve bu geri alınamaz.`
+      `Sahipliği "${username}" kullanıcısına devretmek istediğinize emin misiniz?\n\nBu işlemden sonra kendi hesabınız "İçerik Yöneticisi" rolüne düşer ve bu geri alınamaz.`
     );
     if (!ok) return;
     setRowBusyUser(username);
@@ -253,13 +355,7 @@ export default function UsersPage() {
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-medium text-zinc-500">Rol</label>
-              <select value={newRole} onChange={(e) => setNewRole(e.target.value)} className={inputClass}>
-                {assignableRoles.map((r) => (
-                  <option key={r.key} value={r.key}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
+              <RoleSelect value={newRole} options={assignableRoles} onChange={setNewRole} size="md" />
             </div>
             <button type="submit" disabled={creating || assignableRoles.length === 0} className={btnPrimary}>
               {creating ? "Ekleniyor..." : "Ekle"}
@@ -317,18 +413,12 @@ export default function UsersPage() {
                             <span className="text-xs text-zinc-400">—</span>
                           ) : (
                             <div className="flex flex-wrap items-center gap-2">
-                              <select
+                              <RoleSelect
                                 value={u.role}
+                                options={assignableRoles}
+                                onChange={(role) => handleRoleChange(u.username, role)}
                                 disabled={busy}
-                                onChange={(e) => handleRoleChange(u.username, e.target.value)}
-                                className={selectSmClass}
-                              >
-                                {assignableRoles.map((r) => (
-                                  <option key={r.key} value={r.key}>
-                                    {r.label}
-                                  </option>
-                                ))}
-                              </select>
+                              />
                               <button onClick={() => openReset(u.username)} disabled={busy} className={btnGhost}>
                                 <KeyRound size={13} /> Şifre
                               </button>

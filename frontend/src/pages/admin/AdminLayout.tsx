@@ -178,6 +178,10 @@ export default function AdminLayout() {
     if (can("sources.view")) items.push({ id: "kaynak", title: label("kaynak"), icon: FolderKanban, tone: SECTION_TONES.kaynak });
     if (can("questions.view")) {
       items.push({ id: "bilgi", title: label("bilgi"), icon: Activity, tone: SECTION_TONES.bilgi, badge: unreadQuestionCount });
+    }
+    // Etkinlik & Takvim, yanıt kalitesi/yönlendirme oranını izleyen Destek
+    // Ekibi (questions.view) VE Sistem Yöneticisi (insights.view) için açık.
+    if (can("questions.view") || can("insights.view")) {
       items.push({ id: "etkinlik", title: label("etkinlik"), icon: CalendarRange, tone: SECTION_TONES.etkinlik });
     }
     if (can("users.view")) items.push({ id: "kullanicilar", title: label("kullanicilar"), icon: Users, tone: SECTION_TONES.kullanicilar });

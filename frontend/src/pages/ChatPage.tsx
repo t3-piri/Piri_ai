@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Search, Check } from "lucide-react";
+import { Search, Check, ThumbsUp, ThumbsDown } from "lucide-react";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { MessageLoading } from "@/components/ui/message-loading";
 import { T3Logo } from "@/components/ui/t3-logo";
@@ -32,6 +32,8 @@ type ChatMsg = {
   competitionOptions?: string[];
   pendingQuestion?: string;
   confidence?: string;
+  logId?: string;
+  feedback?: "up" | "down" | null;
 };
 
 function ArrowUpIcon() {
@@ -100,12 +102,15 @@ function MessageBubble({
   isDark,
   busy,
   onPick,
+  onFeedback,
 }: {
   msg: ChatMsg;
   isDark: boolean;
   busy: boolean;
   onPick: (competition: string, question: string) => void;
+  onFeedback: (msgId: string, logId: string, satisfaction: "up" | "down") => void;
 }) {
+  const { t } = useLanguage();
   const isUser = msg.role === "user";
   return (
     <div className={"flex " + (isUser ? "justify-end" : "justify-start")}>
@@ -120,9 +125,45 @@ function MessageBubble({
         }
       >
         {msg.text}
-        {!isUser && msg.confidence && (
-          <div className="mt-2">
-            <ConfidenceBadge confidence={msg.confidence} isDark={isDark} />
+        {!isUser && (msg.confidence || msg.logId) && (
+          <div className="mt-2 flex items-center gap-2">
+            {msg.confidence && <ConfidenceBadge confidence={msg.confidence} isDark={isDark} />}
+            {msg.logId && (
+              <div className="flex items-center gap-1 ml-auto">
+                <button
+                  type="button"
+                  title={t("chat.feedbackUp")}
+                  aria-label={t("chat.feedbackUp")}
+                  onClick={() => onFeedback(msg.id, msg.logId!, "up")}
+                  className={cn(
+                    "p-1 rounded-full transition",
+                    msg.feedback === "up"
+                      ? "text-emerald-500 bg-emerald-500/15"
+                      : isDark
+                      ? "text-zinc-500 hover:text-zinc-300"
+                      : "text-zinc-400 hover:text-zinc-600"
+                  )}
+                >
+                  <ThumbsUp size={13} />
+                </button>
+                <button
+                  type="button"
+                  title={t("chat.feedbackDown")}
+                  aria-label={t("chat.feedbackDown")}
+                  onClick={() => onFeedback(msg.id, msg.logId!, "down")}
+                  className={cn(
+                    "p-1 rounded-full transition",
+                    msg.feedback === "down"
+                      ? "text-red-500 bg-red-500/15"
+                      : isDark
+                      ? "text-zinc-500 hover:text-zinc-300"
+                      : "text-zinc-400 hover:text-zinc-600"
+                  )}
+                >
+                  <ThumbsDown size={13} />
+                </button>
+              </div>
+            )}
           </div>
         )}
         {msg.sources && msg.sources.length > 0 && (
@@ -401,6 +442,8 @@ export default function ChatPage() {
           confidence,
           competitionOptions: data.status === "needs_competition" ? data.competition_options : undefined,
           pendingQuestion: data.status === "needs_competition" ? question : undefined,
+          logId: data.log_id ?? undefined,
+          feedback: null,
         },
       ]);
     } catch (err) {
@@ -426,6 +469,13 @@ export default function ChatPage() {
     void ask(question, false, name);
   }
 
+  function sendFeedback(msgId: string, logId: string, satisfaction: "up" | "down") {
+    setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, feedback: satisfaction } : m)));
+    apiPost("/api/feedback", { log_id: logId, satisfaction }).catch(() => {
+      /* iyimser guncelleme yeterli - agdaki basarisizlik sessizce yoksayilir */
+    });
+  }
+
   const hasMessages = messages.length > 0;
 
   return (
@@ -439,7 +489,7 @@ export default function ChatPage() {
         <div ref={listRef} className="flex-1 overflow-y-auto px-6 pt-20 pb-4">
           <div className="max-w-2xl mx-auto flex flex-col gap-4">
             {messages.map((m) => (
-              <MessageBubble key={m.id} msg={m} isDark={isDark} busy={busy} onPick={pickCompetition} />
+              <MessageBubble key={m.id} msg={m} isDark={isDark} busy={busy} onPick={pickCompetition} onFeedback={sendFeedback} />
             ))}
             {busy && (
               <div className="flex justify-start">

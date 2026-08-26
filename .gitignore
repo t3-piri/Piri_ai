@@ -6,9 +6,11 @@ __pycache__/
 chroma_db/
 local_ingest_progress.txt
 qa_log.jsonl
+qa_feedback.jsonl
 documents.db
 users.db
 sss_entries.jsonl
+*.log
 avatars/
 frontend/node_modules/
 frontend/dist/

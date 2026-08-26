@@ -15,6 +15,7 @@ Calistirma (proje kok dizininden):  .\.venv-local\Scripts\python.exe backend\web
 import os
 import secrets
 import shutil
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -50,7 +51,9 @@ from local_rag_answer import GENERAL_LABEL, answer_auto
 from qa_log import (
     flagged_reports,
     needs_competition_questions,
+    read_feedback,
     read_log,
+    record_feedback,
     technical_errors,
     unanswered_questions,
 )
@@ -197,6 +200,25 @@ def require_permission(permission):
     return dependency
 
 
+def require_any_permission(*permissions):
+    """Verilen yetkilerden EN AZ birini zorunlu kilan bagimlilik uretir -
+    ornegin /api/admin/unanswered hem soruyu yanitlayacak Destek Ekibi'ne
+    (questions.view) hem de sadece toplu metrikleri (yanit kalitesi/
+    yonlendirme orani/sik konular) izleyecek Sistem Yoneticisi'ne
+    (insights.view) acik olmalidir."""
+
+    def dependency(authorization: str = Header(None)):
+        user = _session_user(authorization)
+        if not any(user_store.has_permission(user["role"], p) for p in permissions):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Bu işlem için yetkiniz yok. Rolünüz: {user['role_label']}.",
+            )
+        return user
+
+    return dependency
+
+
 def require_owner(authorization: str = Header(None)):
     user = _session_user(authorization)
     if user["role"] != user_store.OWNER_ROLE:
@@ -276,7 +298,27 @@ def api_ask(req: AskRequest):
         "current_competition": result.get("current_competition"),
         "context": context,
         "competition_options": list_real_competitions() if status == "needs_competition" else [],
+        # Yarismacinin yanitin altindaki begen/begenme (thumbs up/down) geri
+        # bildirimini /api/feedback'e gonderirken hangi qa_log kaydiyla
+        # eslesecegini belirtir (bkz. qa_log.log_turn/record_feedback).
+        "log_id": result.get("log_id"),
     }
+
+
+class FeedbackRequest(BaseModel):
+    log_id: str
+    satisfaction: str
+
+
+@app.post("/api/feedback")
+def api_feedback(req: FeedbackRequest):
+    """Yarismacinin bir yanitin altinda bildirdigi begen/begenme sinyali -
+    Madde 6.1 (kullanici memnuniyeti); dogrudan kullanici degerlendirmesi
+    oldugundan quality_breakdown'daki model-guven vekilinden ayri tutulur."""
+    if req.satisfaction not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="satisfaction 'up' veya 'down' olmalıdır.")
+    record_feedback(req.log_id, req.satisfaction, time.strftime("%Y-%m-%d %H:%M:%S"))
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------
@@ -499,7 +541,7 @@ def api_admin_delete(req: DeleteRequest, _=Depends(require_permission("sources.d
 # --------------------------------------------------------------------------
 
 @app.get("/api/admin/unanswered")
-def api_admin_unanswered(_=Depends(require_permission("questions.view"))):
+def api_admin_unanswered(_=Depends(require_any_permission("questions.view", "insights.view"))):
     log = read_log()
     resolved = sss_store.resolved_questions()
     pending = [e for e in unanswered_questions() if e["question"] not in resolved]
@@ -530,7 +572,14 @@ def api_admin_unanswered(_=Depends(require_permission("questions.view"))):
         # uretmis olsa bile ('answered' dahil) bu ayri sinyal dusebilir.
         "flagged": list(reversed(flagged_reports()))[:50],
         "quality": insights.quality_breakdown(log),
+        # Yarismacinin yanitin altindaki begen/begenme (thumbs up/down) ile
+        # DOGRUDAN bildirdigi memnuniyet - "quality" (model guven vekili)
+        # ile karistirilmamali (bkz. insights.satisfaction_breakdown).
+        "satisfaction": insights.satisfaction_breakdown(read_feedback()),
         "referral": referral,
+        # "frequent" tersine SADECE insana yonlenenleri degil, basariyla
+        # cevaplanan sorular dahil TUM trafigi kumeler (bkz. insights.frequent_topics).
+        "frequent_topics": insights.frequent_topics(log),
         "stats": {
             "total_questions": len(log),
             "answered": sum(1 for e in log if e["status"] == "answered"),
@@ -541,7 +590,7 @@ def api_admin_unanswered(_=Depends(require_permission("questions.view"))):
 
 
 @app.get("/api/admin/activity")
-def api_admin_activity(_=Depends(require_permission("questions.view"))):
+def api_admin_activity(_=Depends(require_any_permission("questions.view", "insights.view"))):
     """Yil x ay etkinlik izgarasi + son hareketler akisi: sorumlunun gecmiste
     hangi donemde ne kadar yogunluk oldugunu gormesi icin."""
     log = read_log()

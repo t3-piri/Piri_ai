@@ -16,7 +16,7 @@ BASE = f"http://127.0.0.1:{os.environ.get('PIRI_PORT', '8100')}"
 OWNER_USER = os.environ.get("OWNER_USERNAME", "sahip")
 OWNER_PW = os.environ.get("ADMIN_PASSWORD", "admin123")
 
-TEST_USERS = ["t_izleyici", "t_icerik", "t_destek"]
+TEST_USERS = ["t_sistem", "t_icerik", "t_destek"]
 TEST_QUESTION = "PIRI-TEST: Panelden eklenen bu kaydin sorusu nedir?"
 TEST_ANSWER = "PIRI-TEST: Bu, panel uzerinden eklenmis dogrulanmis bir SSS kaydidir."
 
@@ -94,7 +94,7 @@ if not owner_token:
     print("\nSahip girisi yapilamadi, test durduruldu.")
     sys.exit(1)
 check("Sahip rolu 'sahip'", owner["role"] == "sahip", owner.get("role"))
-check("Sahip tum yetkilere sahip", len(owner["permissions"]) == 8, str(len(owner["permissions"])))
+check("Sahip tum yetkilere sahip", len(owner["permissions"]) == 9, str(len(owner["permissions"])))
 
 status, _ = call("GET", "/api/admin/documents")
 check("Tokensiz istek 401", status == 401, str(status))
@@ -105,9 +105,9 @@ for u in TEST_USERS:
     call("POST", "/api/admin/users/delete", {"username": u}, token=owner_token)
 
 status, _ = call("POST", "/api/admin/users",
-                 {"username": "t_izleyici", "password": "test1234", "role": "izleyici",
-                  "display_name": "Test Gozlemci"}, token=owner_token)
-check("Gozlemci hesabi olusturuldu", status == 200, str(status))
+                 {"username": "t_sistem", "password": "test1234", "role": "sistem_yoneticisi",
+                  "display_name": "Test Sistem Yoneticisi"}, token=owner_token)
+check("Sistem Yoneticisi hesabi olusturuldu", status == 200, str(status))
 
 status, data = call("POST", "/api/admin/users",
                     {"username": "t_sahip2", "password": "test1234", "role": "sahip"},
@@ -124,21 +124,25 @@ status, _ = call("POST", "/api/admin/users",
                   "display_name": "Test Destek Ekibi"}, token=owner_token)
 check("Destek Ekibi hesabi olusturuldu", status == 200, str(status))
 
-viewer_token, viewer = login("t_izleyici", "test1234")
-check("Gozlemci girisi", bool(viewer_token))
-check("Gozlemci 2 yetkiye sahip", viewer and len(viewer["permissions"]) == 2,
-      str(viewer and viewer["permissions"]))
+sistem_token, sistem = login("t_sistem", "test1234")
+check("Sistem Yoneticisi girisi", bool(sistem_token))
+check("Sistem Yoneticisi 1 yetkiye sahip", sistem and len(sistem["permissions"]) == 1,
+      str(sistem and sistem["permissions"]))
 
-status, _ = call("GET", "/api/admin/documents", token=viewer_token)
-check("Gozlemci kaynaklari GOREBILIR", status == 200, str(status))
+status, _ = call("GET", "/api/admin/documents", token=sistem_token)
+check("Sistem Yoneticisi kaynaklari GOREMEZ (403)", status == 403, str(status))
+status, _ = call("GET", "/api/admin/unanswered", token=sistem_token)
+check("Sistem Yoneticisi yanit kalitesi/yonlendirme metriklerini GOREBILIR", status == 200, str(status))
+status, _ = call("GET", "/api/admin/activity", token=sistem_token)
+check("Sistem Yoneticisi etkinlik takvimini GOREBILIR", status == 200, str(status))
 status, _ = call("POST", "/api/admin/documents/status",
-                 {"document_id": "x", "version": 1, "status": "inactive"}, token=viewer_token)
-check("Gozlemci durum DEGISTIREMEZ (403)", status == 403, str(status))
-status, _ = call("GET", "/api/admin/users", token=viewer_token)
-check("Gozlemci kullanicilari GOREMEZ (403)", status == 403, str(status))
+                 {"document_id": "x", "version": 1, "status": "inactive"}, token=sistem_token)
+check("Sistem Yoneticisi durum DEGISTIREMEZ (403)", status == 403, str(status))
+status, _ = call("GET", "/api/admin/users", token=sistem_token)
+check("Sistem Yoneticisi kullanicilari GOREMEZ (403)", status == 403, str(status))
 status, _ = call("POST", "/api/admin/questions/answer",
-                 {"question": "x", "answer": "y"}, token=viewer_token)
-check("Gozlemci soru YANITLAYAMAZ (403)", status == 403, str(status))
+                 {"question": "x", "answer": "y"}, token=sistem_token)
+check("Sistem Yoneticisi soru YANITLAYAMAZ (403)", status == 403, str(status))
 
 icerik_token, icerik = login("t_icerik", "test1234")
 check("Icerik Yoneticisi girisi", bool(icerik_token))
@@ -152,10 +156,10 @@ check("Icerik Yoneticisi belge SILEMEZ (403)", status == 403, str(status))
 status, _ = call("POST", "/api/admin/questions/answer",
                  {"question": "x", "answer": "y"}, token=icerik_token)
 check("Icerik Yoneticisi soru YANITLAYAMAZ (403)", status == 403, str(status))
-status, _ = call("POST", "/api/admin/users", {"username": "z", "password": "1234", "role": "izleyici"},
+status, _ = call("POST", "/api/admin/users", {"username": "z", "password": "1234", "role": "sistem_yoneticisi"},
                  token=icerik_token)
 check("Icerik Yoneticisi kullanici EKLEYEMEZ (403)", status == 403, str(status))
-status, _ = call("POST", "/api/admin/users/transfer", {"username": "t_izleyici"}, token=icerik_token)
+status, _ = call("POST", "/api/admin/users/transfer", {"username": "t_sistem"}, token=icerik_token)
 check("Icerik Yoneticisi sahiplik DEVREDEMEZ (403)", status == 403, str(status))
 
 destek_token, destek = login("t_destek", "test1234")
@@ -168,10 +172,10 @@ check("Destek Ekibi kaynak durumu DEGISTIREMEZ (403)", status == 403, str(status
 status, _ = call("GET", "/api/admin/documents", token=destek_token)
 check("Destek Ekibi kaynaklari GOREMEZ (403)", status == 403, str(status))
 
-status, _ = call("POST", "/api/admin/users/role", {"username": "t_izleyici", "role": "yonetici"},
+status, _ = call("POST", "/api/admin/users/role", {"username": "t_sistem", "role": "icerik_yoneticisi"},
                  token=owner_token)
 check("Sahip rol degistirebilir", status == 200, str(status))
-status, data = call("POST", "/api/admin/users/role", {"username": OWNER_USER, "role": "izleyici"},
+status, data = call("POST", "/api/admin/users/role", {"username": OWNER_USER, "role": "destek_ekibi"},
                     token=owner_token)
 check("Sahip kendi rolunu degistiremez", status == 400, f"{status} {data.get('detail','')}")
 

@@ -17,10 +17,9 @@ ADMIN_PANEL = Path(__file__).parent / "admin_panel.py"
 OWNER_USER = os.environ.get("OWNER_USERNAME", "sahip")
 OWNER_PW = os.environ.get("ADMIN_PASSWORD", "admin123")
 TEST_USERS = {
-    "t_cli_izleyici": "izleyici",
+    "t_cli_sistem": "sistem_yoneticisi",
     "t_cli_icerik": "icerik_yoneticisi",
     "t_cli_destek": "destek_ekibi",
-    "t_cli_yonetici": "yonetici",
 }
 TEST_PW = "test1234"
 
@@ -79,19 +78,13 @@ check("Sahip 8 islem goruyor", len(items) == 8, f"{len(items)}: {items}")
 check("Sahip kullanici yonetimini goruyor",
       any("Kullanıcı/rol yönetimi" in i for i in items), str(items))
 
-print("\n[3] Gozlemci - yalnizca goruntuleme")
-code, out = run_cli("t_cli_izleyici", TEST_PW)
+print("\n[3] Sistem Yoneticisi - bu CLI aracinda islevi yok (analitik yalnizca web panelde)")
+code, out = run_cli("t_cli_sistem", TEST_PW)
 items = menu_items(out)
-check("Gozlemci girisi basarili", "Gözlemci" in out, out[-200:])
-check("Gozlemci 2 islem goruyor", len(items) == 2, f"{len(items)}: {items}")
-check("Gozlemci yukleme goremiyor",
-      not any("yükle" in i.lower() for i in items), str(items))
-check("Gozlemci silme goremiyor",
-      not any("sil" in i.lower() for i in items), str(items))
-check("Gozlemci kullanici yonetimi goremiyor",
-      not any("Kullanıcı" in i for i in items), str(items))
-check("Gozlemci soru yanitlayamiyor",
-      not any("yanıtla" in i.lower() for i in items), str(items))
+check("Sistem Yoneticisi girisi basarili", "Sistem Yöneticisi" in out, out[-200:])
+check("Sistem Yoneticisi CLI'da hicbir islem goremiyor", len(items) == 0, f"{len(items)}: {items}")
+check("Sistem Yoneticisi ilgili uyariyi aliyor",
+      "bu araçta kullanabileceği bir işlem yok" in out, out[-200:])
 
 print("\n[4] Icerik Yoneticisi - yukler ve pasife alir, yanitlayamaz/silemez")
 code, out = run_cli("t_cli_icerik", TEST_PW)
@@ -117,23 +110,11 @@ check("Destek Ekibi yukleme GOREMIYOR",
 check("Destek Ekibi kullanici yonetimi goremiyor",
       not any("Kullanıcı" in i for i in items), str(items))
 
-print("\n[6] Yonetici - kullanicilari gorur, yonetemez")
-code, out = run_cli("t_cli_yonetici", TEST_PW)
-items = menu_items(out)
-check("Yonetici girisi basarili", "Yönetici" in out, out[-200:])
-check("Yonetici 7 islem goruyor", len(items) == 7, f"{len(items)}: {items}")
-check("Yonetici kullanicilari listeleyebiliyor",
-      any("Kullanıcıları listele" in i for i in items), str(items))
-check("Yonetici kullanici YONETEMIYOR",
-      not any("Kullanıcı/rol yönetimi" in i for i in items), str(items))
-check("Yonetici silme goruyor",
-      any(i.startswith("Kaynak dosyası sil") for i in items), str(items))
-
-print("\n[7] Bekleyen sorularin listelenmesi (gercek veri)")
+print("\n[6] Bekleyen sorularin listelenmesi (gercek veri)")
 code, out = run_cli(OWNER_USER, OWNER_PW, extra_input="5\n0\n")
 check("Soru listesi calisiyor", "Toplam soru:" in out, out[-300:])
 
-print("\n[8] Temizlik")
+print("\n[7] Temizlik")
 for name in TEST_USERS:
     try:
         user_store.delete_user(name)

@@ -16,6 +16,8 @@ const STRINGS = {
   "chat.confidenceMid": { tr: "~ Orta güven", en: "~ Medium confidence" },
   "chat.confidenceLow": { tr: "Düşük güven", en: "Low confidence" },
   "chat.confidenceGeneral": { tr: "Genel kaynak", en: "General source" },
+  "chat.feedbackUp": { tr: "Bu yanıt yardımcı oldu", en: "This answer was helpful" },
+  "chat.feedbackDown": { tr: "Bu yanıt yardımcı olmadı", en: "This answer was not helpful" },
   "login.title": { tr: "Tekrar hoş geldin", en: "Welcome back" },
   "login.subtitle": { tr: "Yönetim paneline erişmek için bilgilerini gir.", en: "Enter your details to access the admin panel." },
   "login.username": { tr: "Kullanıcı adı", en: "Username" },

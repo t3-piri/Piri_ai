@@ -1,8 +1,13 @@
-"""Sorumlunun sistemi izleyip iyilestirmesi icin uc sinyal:
-  1) yanit kalitesi     - basariyla cevaplanmis sorularin guven dagilimi
-  2) insana yonlendirme - kanit yetersizligiyle sorumluya devredilen soru orani
-  3) sik sorulan konular - HENUZ CEVAPLANAMAMIS, sorumluya yonlenen sorular
+"""Sorumlunun sistemi izleyip iyilestirmesi icin sinyaller:
+  1) yanit kalitesi      - basariyla cevaplanmis sorularin guven dagilimi
+  2) kullanici memnuniyeti - yanitin altindaki begen/begenme (thumbs up/down)
+     ile DOGRUDAN bildirilen memnuniyet - (1)'deki model-guven vekilinden
+     farkli olarak kullanicinin kendi degerlendirmesidir.
+  3) insana yonlendirme  - kanit yetersizligiyle sorumluya devredilen soru orani
+  4) sik sorulan konular - HENUZ CEVAPLANAMAMIS, sorumluya yonlenen sorular
      arasinda anlamca (kelime kelime degil) tekrar eden kumeler
+  5) genel en sik sorulan konular - basariyla cevaplanan sorular DAHIL, TUM
+     soru trafigi uzerinden anlamca tekrar eden kumeler
 
 Kumeleme icin RAG'de zaten yuklu olan embedding modeli yeniden kullanilir -
 ek bagimlilik veya ayri bir servis gerekmez.
@@ -23,6 +28,22 @@ def quality_breakdown(log):
     answered = [e for e in log if e["status"] == "answered" and e.get("top_score") is not None]
     high = sum(1 for e in answered if e["top_score"] > CONFIDENCE_HIGH)
     return {"high": high, "mid": len(answered) - high, "total": len(answered)}
+
+
+def satisfaction_breakdown(feedback):
+    """Kullanicinin yanitin altindaki begen/begenme (thumbs up/down) sinyaline
+    gore DOGRUDAN memnuniyet dagilimi (bkz. qa_log.record_feedback) -
+    quality_breakdown'daki model-guven vekilinden farkli olarak kullanicinin
+    kendi degerlendirmesidir."""
+    up = sum(1 for f in feedback if f["satisfaction"] == "up")
+    down = sum(1 for f in feedback if f["satisfaction"] == "down")
+    total = up + down
+    return {
+        "up": up,
+        "down": down,
+        "total": total,
+        "rate": round(up / total, 4) if total else None,
+    }
 
 
 def recent_cutoff(days):
@@ -103,13 +124,9 @@ def _cosine_clusters(vectors, threshold):
     return clusters
 
 
-def frequent_unanswered(entries, min_count=FREQUENT_MIN_COUNT,
-                        threshold=FREQUENT_SIMILARITY, top_n=FREQUENT_TOP_N):
-    """entries: henuz SSS ile cevaplanmamis, kanit yetersizligiyle sorumluya
-    yonlenen ('low_confidence') qa_log kayitlari - AI'in basariyla cevapladigi
-    sorular DAHIL EDILMEZ. Her yarisma/baglam kendi icinde kumelenir, cunku
-    ayni ifadeyle sorulan bir soru farkli yarismalar icin farkli cevap
-    gerektirebilir."""
+def _frequent_clusters(entries, min_count, threshold, top_n):
+    """Her yarisma/baglam kendi icinde kumelenir, cunku ayni ifadeyle sorulan
+    bir soru farkli yarismalar icin farkli cevap gerektirebilir."""
     by_scope = {}
     for e in entries:
         by_scope.setdefault(e.get("competition") or "Genel", []).append(e)
@@ -135,3 +152,23 @@ def frequent_unanswered(entries, min_count=FREQUENT_MIN_COUNT,
 
     results.sort(key=lambda c: (c["count"], c["last_asked"]), reverse=True)
     return results[:top_n]
+
+
+def frequent_unanswered(entries, min_count=FREQUENT_MIN_COUNT,
+                        threshold=FREQUENT_SIMILARITY, top_n=FREQUENT_TOP_N):
+    """entries: henuz SSS ile cevaplanmamis, kanit yetersizligiyle sorumluya
+    yonlenen ('low_confidence') qa_log kayitlari - AI'in basariyla cevapladigi
+    sorular DAHIL EDILMEZ."""
+    return _frequent_clusters(entries, min_count, threshold, top_n)
+
+
+def frequent_topics(log, min_count=FREQUENT_MIN_COUNT,
+                     threshold=FREQUENT_SIMILARITY, top_n=FREQUENT_TOP_N):
+    """frequent_unanswered'in aksine SADECE insana yonlenen degil, basariyla
+    cevaplanan sorular DAHIL TUM soru trafigi uzerinden kumeler - sorumlunun
+    yarismacilarin GENEL OLARAK en cok hangi konularda soru sordugunu (sadece
+    cevapsiz kalanlari degil) gormesi icindir. 'unclear' (anlamsiz/klavye
+    karalamasi, bkz. qa_log.log_turn dokstring) kayitlar gercek bir soru
+    olmadigindan disarida birakilir."""
+    entries = [e for e in log if e.get("status") != "unclear"]
+    return _frequent_clusters(entries, min_count, threshold, top_n)

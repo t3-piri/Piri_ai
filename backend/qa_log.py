@@ -1,7 +1,9 @@
 import json
+import uuid
 from pathlib import Path
 
 LOG_FILE = Path("qa_log.jsonl")
+FEEDBACK_FILE = Path("qa_feedback.jsonl")
 
 
 def log_turn(competition, question, answer, status, top_score, timestamp, flagged=False):
@@ -32,6 +34,7 @@ def log_turn(competition, question, answer, status, top_score, timestamp, flagge
     gelmez - Sistem Yoneticisi'ne GERCEK ZAMANLI bir sikayet olarak AYRICA
     dusmesi gerekir."""
     entry = {
+        "id": uuid.uuid4().hex[:12],
         "timestamp": timestamp,
         "competition": competition,
         "question": question,
@@ -42,6 +45,7 @@ def log_turn(competition, question, answer, status, top_score, timestamp, flagge
     }
     with LOG_FILE.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return entry["id"]
 
 
 def read_log():
@@ -83,6 +87,29 @@ def needs_competition_questions():
     kaldigi bir andir ve Sistem Yoneticisi'ne bildirim olarak dusmesi
     gerekir."""
     return [e for e in read_log() if e["status"] == "needs_competition"]
+
+
+def record_feedback(log_id, satisfaction, timestamp):
+    """Kullanicinin bir yanitin altindaki begen/begenme (thumbs up/down)
+    ile bildirdigi memnuniyet sinyali - Madde 6.1 (yanit kalitesi/kullanici
+    memnuniyeti). qa_log.jsonl append-only oldugundan (bkz. log_turn) ilgili
+    satiri yeniden yazmak yerine ayri bir dosyaya eklenir; log_id (log_turn'un
+    dondurdugu entry id'si) ile eslestirilir."""
+    if satisfaction not in ("up", "down"):
+        raise ValueError("satisfaction 'up' veya 'down' olmalidir")
+    entry = {"log_id": log_id, "satisfaction": satisfaction, "timestamp": timestamp}
+    with FEEDBACK_FILE.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def read_feedback():
+    if not FEEDBACK_FILE.exists():
+        return []
+    entries = []
+    for line in FEEDBACK_FILE.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            entries.append(json.loads(line))
+    return entries
 
 
 def flagged_reports():

@@ -1,8 +1,9 @@
 """Yonetim paneli kullanici ve rol yonetimi.
 
 Tek bir SAHIP hesabi vardir; genel yetki ondadir ve diger hesaplari o acar,
-rollerini o belirler. Diger roller (yonetici / editor / izleyici) sahibin
-verdigi yetki kadarini gorur.
+rollerini o belirler. Diger roller (icerik_yoneticisi / destek_ekibi /
+sistem_yoneticisi) sahibin verdigi yetki kadarini gorur; her biri tek bir
+gorev alanina (kaynak havuzu / soru-cevap / izleme-analitik) daralttilmistir.
 
 Sifreler PBKDF2-HMAC-SHA256 ile saklanir (ek bagimlilik yok). Bu bir demo
 kurulumu oldugundan sifre politikasi bilincli olarak gevsek tutulmustur.
@@ -33,6 +34,7 @@ PERMISSIONS = (
     "questions.answer",  # yanitsiz soruyu yanitlayip SSS'e isle
     "users.view",        # kullanici listesini gor
     "users.manage",      # kullanici ekle/sil, rol degistir
+    "insights.view",     # yanit kalitesi / yonlendirme orani / sik konular
 )
 
 ROLES = {
@@ -42,32 +44,23 @@ ROLES = {
         "permissions": set(PERMISSIONS),
         "rank": 0,
     },
-    "yonetici": {
-        "label": "Yönetici",
-        "description": "Kaynakları ve soruları tam yönetir; kullanıcı listesini görür ama değiştiremez.",
-        "permissions": {
-            "sources.view", "sources.upload", "sources.status", "sources.delete",
-            "questions.view", "questions.answer", "users.view",
-        },
-        "rank": 1,
-    },
     "icerik_yoneticisi": {
         "label": "İçerik Yöneticisi",
-        "description": "Yeni şartname/kılavuz yükler, eski kaynağı pasife alır ve bilgi havuzunu günceller.",
+        "description": "Kaynakları yükler, eski sürümü pasife alır ve bilgi havuzunu günceller.",
         "permissions": {"sources.view", "sources.upload", "sources.status"},
-        "rank": 2,
+        "rank": 1,
     },
     "destek_ekibi": {
         "label": "Destek Ekibi",
-        "description": "İnsana yönlenen soruları görür, yanıtlar ve tekrarlayan yeni konuları SSS havuzuna ekler.",
+        "description": "İnsana yönlenen soruları görür, yanıtlar ve tekrarlayan/yeni konuları SSS havuzuna ekler.",
         "permissions": {"questions.view", "questions.answer"},
-        "rank": 3,
+        "rank": 2,
     },
-    "izleyici": {
-        "label": "Gözlemci",
-        "description": "Yalnızca görüntüler; hiçbir değişiklik yapamaz.",
-        "permissions": {"sources.view", "questions.view"},
-        "rank": 4,
+    "sistem_yoneticisi": {
+        "label": "Sistem Yöneticisi",
+        "description": "Yanıt kalitesi, insana yönlendirme oranı ve sık sorulan konuları izleyerek sistemi iyileştirir.",
+        "permissions": {"insights.view"},
+        "rank": 3,
     },
 }
 
@@ -122,12 +115,23 @@ def _connect():
     # "icerik_yoneticisi"ye tasindi (soru yanitlama Destek Ekibi'ne gecti).
     # Var olan hesaplarin rolu bir kereye mahsus otomatik guncellenir.
     conn.execute("UPDATE users SET role = 'icerik_yoneticisi' WHERE role = 'editor'")
+    # "yonetici" ve "izleyici" rolleri kaldirildi (bkz. ROLES): net gorev
+    # tanimlarina (Icerik Yoneticisi / Destek Ekibi / Sistem Yoneticisi)
+    # ayrildilar. Var olan hesaplar guvenli bir varsayilana tasinir; Sahip
+    # gerekirse Kullanicilar panelinden dogru role manuel atayabilir.
+    conn.execute("UPDATE users SET role = 'icerik_yoneticisi' WHERE role IN ('yonetici', 'izleyici')")
     # Profil fotografi (Aşama 2): eski veritabanlarina sutunu ekle. SQLite'ta
     # "ADD COLUMN IF NOT EXISTS" olmadigi icin hataya karsi kalkanla deneriz.
     try:
         conn.execute("ALTER TABLE users ADD COLUMN avatar_path TEXT")
     except sqlite3.OperationalError:
         pass  # sutun zaten var
+    # Yukaridaki CREATE/UPDATE/ALTER hemen commit edilir: aksi halde bir
+    # cagiran fonksiyon kendi commit()'ini yapmadan erken donerse (ornegin
+    # basarisiz giris denemesi, "kullanici zaten var" erken-cikisi) bu
+    # gecisler sessizce rollback olur ve rol adlandirma migrasyonu hic
+    # calismamis gibi davranir.
+    conn.commit()
     return conn
 
 
@@ -334,7 +338,9 @@ def delete_user(username):
 
 
 def transfer_ownership(current_owner, new_owner):
-    """Sahiplik tek kisidedir: yeni sahip atanirken eski sahip 'yonetici' olur."""
+    """Sahiplik tek kisidedir: yeni sahip atanirken eski sahip 'icerik_yoneticisi' olur
+    (Sahip disinda en genis islevsel role - Kullanicilar panelinden farkli bir rol
+    verilebilir)."""
     target = get_user(new_owner)
     if target is None:
         raise UserError("Devredilecek kullanıcı bulunamadı.")
@@ -342,7 +348,7 @@ def transfer_ownership(current_owner, new_owner):
         raise UserError("Bu kullanıcı zaten sahip.")
     conn = _connect()
     try:
-        conn.execute("UPDATE users SET role = 'yonetici' WHERE username = ?", (current_owner,))
+        conn.execute("UPDATE users SET role = 'icerik_yoneticisi' WHERE username = ?", (current_owner,))
         conn.execute("UPDATE users SET role = ? WHERE username = ?", (OWNER_ROLE, new_owner))
         conn.commit()
     finally:

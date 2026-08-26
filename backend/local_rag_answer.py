@@ -94,8 +94,20 @@ _PROBLEM_SUBSTRINGS = [
     # ariza/bozukluk bildirimi
     "ariza", "bozuk", "coktu", "cokuyor", "kilitlendi", "donuyor",
     "takildi", "askida kaldi", "hata aliyorum", "hata veriyor", "hata kodu",
-    "sorun var", "sikinti var", "problem var",
+    # sistem kullaniciyi disari atma / oturum kapanma bildirimi
+    "sistem atiyor", "sistemden atiyor", "beni atiyor", "disari atiyor",
+    "oturumu kapatiyor", "oturum kapaniyor", "kendiliginden cikiyor",
+    "kendiliginden kapaniyor",
 ]
+
+# "sorun/sikinti/problem" + iyelik eki ("sorunum", "sikintimiz" vb.) + "var"
+# kaliplarini TEK regex'te yakalar: sabit "sorun var" alt-dizesi, Turkce'nin
+# sondan eklemeli yapisi yuzunden "sorunum var" gibi COK YAYGIN bir soylenisi
+# kacirir (bkz. gercek vaka: "benim bir sorunum var sisteme kayit olurken
+# sistem atiyor" - "sorun" ile "var" arasina "um" eki girdigi icin eski
+# sabit liste bunu yakalayamadi ve RAG, alakasiz sartname pasajlariyla
+# 'Yuksek guven' etiketiyle yanlis bir cevap uretti).
+_PROBLEM_VAR_RE = re.compile(r"\b(sorun|sikinti|problem)\w*\s+var\b")
 
 # Yukaridaki ifadeler VARSA BILE, kosullu/varsayimsal bir cumle icindeyse
 # ("... olursa ne yapmaliyim" gibi) bu GERCEK bir sikayet degil, genel bir
@@ -116,6 +128,8 @@ def _reports_live_problem(question):
     folded = question.casefold().translate(_TR_FOLD)
     if any(marker in folded for marker in _CONDITIONAL_MARKERS):
         return False
+    if _PROBLEM_VAR_RE.search(folded):
+        return True
     return any(pat in folded for pat in _PROBLEM_SUBSTRINGS)
 
 
@@ -575,7 +589,7 @@ def _finalize(question, result, competition_label, current_competition):
     # Yoneticisi'ne dusmelidir - status'tan (dahil low_confidence/
     # needs_competition gibi zaten bildirilen durumlardan) BAGIMSIZDIR.
     flagged = result.get("flagged", False) or _reports_live_problem(question)
-    log_turn(
+    log_id = log_turn(
         competition=competition_label,
         question=question,
         answer=result["answer"],
@@ -586,7 +600,32 @@ def _finalize(question, result, competition_label, current_competition):
     )
     result["current_competition"] = current_competition
     result["flagged"] = flagged
+    result["log_id"] = log_id
     return result
+
+
+def _live_problem_result(question, competition_label, current_competition):
+    """SU AN yasanan somut bir teknik/sistemsel sorun bildirimi (bkz.
+    _reports_live_problem) sartname/SSS icerigiyle YANITLANAMAZ - boyle bir
+    girdi retrieval'a hic sokulmadan dogrudan Sistem Yoneticisi'ne
+    yonlendirilir. Kaynak/guven rozeti GOSTERILMEZ (status='redirected' ->
+    web_app.api_ask sources/confidence'i bos birakir): sartnamede bu soruna
+    dair bilgi yokken kaynak gostermek yanlis bir 'Yuksek guven' izlenimi
+    verir (bkz. gercek vaka ekran goruntusu)."""
+    result = {
+        "answer": (
+            "Bu, şartnamede yanıtı bulunan bir bilgi sorusu değil; yaşadığınız "
+            "teknik/sistemsel bir aksaklık gibi görünüyor. Talebinizi Sistem "
+            f"Yöneticisi'ne ilettim, en kısa sürede dönüş yapılacaktır. Acil "
+            f"durumlarda {SUPPORT_CONTACT} başvurabilirsiniz."
+        ),
+        "status": "redirected",
+        "confidence": None,
+        "top_score": None,
+        "sources": [],
+        "flagged": True,
+    }
+    return _finalize(question, result, competition_label, current_competition)
 
 
 def answer_question(question, current_competition=None):
@@ -608,6 +647,9 @@ def answer_question(question, current_competition=None):
     sonuclanir; aksi halde bir sonraki kaynak denenir - boylece genel
     kaynaklarin dar bir SSS kaydiyla yanlislikla eslesip daha kesin/dogru bir
     yarisma-ozel cevabin onune gecmesi engellenir."""
+    if _reports_live_problem(question):
+        return _live_problem_result(question, GENERAL_LABEL, current_competition)
+
     mentioned = detect_competition_mention(question)
 
     if mentioned:
@@ -666,6 +708,9 @@ def answer_in_context(question, context, include_general=True):
 
     answer_question()'dan farki: mesaj metninde baska bir yarisma adi gecse
     bile baglam disina cikilmaz."""
+    if _reports_live_problem(question):
+        return _live_problem_result(question, context or GENERAL_LABEL, context or None)
+
     if not context or context == GENERAL_LABEL:
         return _finalize(question, _try_general(question), GENERAL_LABEL, None)
 
