@@ -125,4 +125,4 @@ CWD'nin kök olduğunu varsayar.
 ## Bilinen sınırlama
 
 Yalnızca görsel/onay işareti içeren tablolar (ör. şartnamelerdeki "hangi eğitim
-seviyesi uygun" tabloları) PDF'ten metin olarak çıkarılamadığı için aranamaz.
+seviyesi uygun" tabloları) PDF'ten metin olarak çıkarılamadığı için aranamaz. 
